@@ -4,6 +4,18 @@ import json
 import shutil
 import random
 import threading
+
+# --- 【核心修复】必须放在 PyQt5 导入之前 ---
+# 强制告诉 EXE 去哪里找音频解码器插件
+if getattr(sys, 'frozen', False):
+    # 如果是打包后的 EXE 环境
+    base_path = sys._MEIPASS
+    # 设置 Qt 插件路径，指向临时解压目录
+    os.environ['QT_PLUGIN_PATH'] = os.path.join(base_path, 'PyQt5', 'Qt5', 'plugins')
+    # 有些版本路径稍有不同，双重保险
+    if not os.path.exists(os.path.join(base_path, 'PyQt5', 'Qt5', 'plugins')):
+        os.environ['QT_PLUGIN_PATH'] = os.path.join(base_path, 'PyQt5', 'Qt', 'plugins')
+
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QListWidget, 
                              QFileDialog, QFrame, QAbstractItemView,
@@ -89,12 +101,11 @@ class BilibiliDownloader(QThread):
             elif d['status'] == 'finished':
                 self.progress_signal.emit("✅ 下载完成")
 
-        # 0=单曲(noplaylist=True), 1=合集(noplaylist=False)
         is_playlist = True if self.mode == 1 else False
 
         ydl_opts = {
-            # 强制下载 m4a 音频 (Windows最兼容的格式)
-            'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best', 
+            # 下载 m4a (AAC编码)，这是 Windows Media Foundation 原生支持最好的格式
+            'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
             'noplaylist': not is_playlist,
             'ignoreerrors': True,
@@ -104,10 +115,10 @@ class BilibiliDownloader(QThread):
         }
 
         try:
-            self.progress_signal.emit("🔍 正在解析链接...")
+            self.progress_signal.emit("🔍 解析链接中...")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
-            self.progress_signal.emit("🎉 任务全部结束")
+            self.progress_signal.emit("🎉 任务完成")
             self.finished_signal.emit()
         except Exception as e:
             self.progress_signal.emit(f"❌ 错误: {str(e)}")
@@ -177,7 +188,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (最终修复版)")
+        self.setWindowTitle("汽水音乐 (播放修复版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -421,7 +432,6 @@ class SodaPlayer(QMainWindow):
         self.playlist = []
         self.list_widget.clear()
         if not os.path.exists(self.music_folder): return
-        # 增加扫描 .m4a (AAC音频) 和 .mp4
         exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
         files = [x for x in os.listdir(self.music_folder) if x.lower().endswith(exts)]
         files.sort()
@@ -528,9 +538,8 @@ class SodaPlayer(QMainWindow):
                 self.play_next()
 
     def handle_player_error(self):
-        # 错误弹窗提示
         err_msg = self.player.errorString()
-        QMessageBox.warning(self, "播放错误", f"无法播放该文件：\n{err_msg}\n\n可能原因：缺少解码器或文件损坏。")
+        QMessageBox.warning(self, "播放错误", f"无法播放：{err_msg}\n\n提示：代码顶部已添加路径修复，如果还报错，说明系统缺少 m4a 解码器（通常安装 K-Lite Codec Pack 可解决）。")
         self.btn_play.setText("▶")
 
     def on_duration_changed(self, dur):
