@@ -22,15 +22,23 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller PyQt5 PyQt5-sip yt-dlp
 
-    # --- 【核心步骤】下载 FFmpeg ---
-    - name: Download FFmpeg
+    # --- 【核心修复】使用专业插件安装 FFmpeg ---
+    - name: Setup FFmpeg
+      uses: FedericoCarboni/setup-ffmpeg@v3
+      with:
+        ffmpeg-version: release
+        architecture: x64
+
+    # --- 把安装好的 FFmpeg 复制到当前目录，以便打包 ---
+    - name: Copy FFmpeg for Packaging
       shell: pwsh
       run: |
-        curl -L -o ffmpeg.exe https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/ffmpeg-win32-x64.exe
+        $ffmpegPath = (Get-Command ffmpeg).Source
+        Copy-Item $ffmpegPath -Destination .\ffmpeg.exe
+        Write-Host "FFmpeg copied from $ffmpegPath to current directory"
 
-    # --- 打包 ---
-    # --add-binary "ffmpeg.exe;." : 这句话把刚才下载的 ffmpeg 塞进 EXE
     - name: Build EXE
+      # --add-binary "ffmpeg.exe;." 把刚才复制过来的好文件打包进去
       run: |
         pyinstaller --noconsole --onefile --collect-all PyQt5 --collect-all yt_dlp --add-binary "ffmpeg.exe;." --name "SodaMusicPlayer" main.py
 
