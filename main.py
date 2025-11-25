@@ -21,7 +21,7 @@ except ImportError:
 
 CONFIG_FILE = "config.json"
 
-# --- 样式表 ---
+# --- 样式表 (保持清新风格) ---
 STYLESHEET = """
 QMainWindow { background-color: #FFFFFF; }
 QWidget { font-family: "SimSun", "宋体", serif; color: #333333; }
@@ -64,15 +64,17 @@ QSlider::sub-page:horizontal {
 }
 """
 
-# --- B站下载线程 ---
+# --- B站下载线程 (核心修改：下载后重命名) ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
 
-    def __init__(self, url, folder):
+    def __init__(self, url, folder, mode):
         super().__init__()
         self.url = url
         self.folder = folder
+        self.mode = mode # 0:单曲, 1:合集
+        self.downloaded_files = [] # 记录下载的文件路径
 
     def run(self):
         if not yt_dlp:
@@ -81,33 +83,51 @@ class BilibiliDownloader(QThread):
 
         def progress_hook(d):
             if d['status'] == 'downloading':
-                # 计算百分比
                 p = d.get('_percent_str', '')
                 filename = os.path.basename(d.get('filename', '未知'))
-                # 截断过长文件名
-                if len(filename) > 30: filename = filename[:30] + "..."
+                if len(filename) > 25: filename = filename[:25] + "..."
                 self.progress_signal.emit(f"⬇️ {p} : {filename}")
             elif d['status'] == 'finished':
-                self.progress_signal.emit("✅ 下载完成，准备下一个...")
+                # 记录下载完成的文件路径
+                self.downloaded_files.append(d['filename'])
+                self.progress_signal.emit("✅ 下载完成，正在转码...")
+
+        is_playlist = True if self.mode == 1 else False
 
         ydl_opts = {
-            # 强制下载 MP4 (解决播放问题)
-            'format': 'best[ext=mp4]/best', 
+            # 依然下载 m4a，保证下载成功率
+            'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
-            'noplaylist': False,
-            'ignoreerrors': True, 
+            'noplaylist': not is_playlist,
+            'ignoreerrors': True,
             'progress_hooks': [progress_hook],
             'quiet': True,
             'nocheckcertificate': True,
-            'playlist_items': '1-100', 
         }
 
         try:
-            self.progress_signal.emit("🔍 正在解析链接/合集信息...")
+            self.progress_signal.emit("🔍 正在解析...")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
-            self.progress_signal.emit("🎉 所有任务已完成")
+            
+            # --- 核心修复：强制重命名为 mp4 ---
+            self.progress_signal.emit("🔧 正在处理文件格式...")
+            count = 0
+            for file_path in self.downloaded_files:
+                if file_path.endswith('.m4a'):
+                    new_path = file_path[:-4] + '.mp4'
+                    try:
+                        # 如果目标mp4已存在，先删除，防止报错
+                        if os.path.exists(new_path):
+                            os.remove(new_path)
+                        os.rename(file_path, new_path)
+                        count += 1
+                    except Exception as e:
+                        print(f"Rename error: {e}")
+            
+            self.progress_signal.emit(f"🎉 处理完成，共 {count} 首")
             self.finished_signal.emit()
+            
         except Exception as e:
             self.progress_signal.emit(f"❌ 错误: {str(e)}")
 
@@ -176,7 +196,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (最终完美版)")
+        self.setWindowTitle("汽水音乐 (MP4兼容版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -186,7 +206,6 @@ class SodaPlayer(QMainWindow):
         self.current_index = -1
         self.offset = 0
         
-        # 播放设置
         self.mode = 0 
         self.rate = 1.0 
         self.is_slider_pressed = False 
@@ -224,7 +243,7 @@ class SodaPlayer(QMainWindow):
         self.btn_local.setProperty("NavBtn", True)
         side_layout.addWidget(self.btn_local)
 
-        self.btn_bili = QPushButton("📺  B站合集下载")
+        self.btn_bili = QPushButton("📺  B站/合集下载")
         self.btn_bili.setObjectName("DownloadBtn")
         self.btn_bili.setProperty("NavBtn", True)
         self.btn_bili.clicked.connect(self.download_from_bilibili)
@@ -270,7 +289,6 @@ class SodaPlayer(QMainWindow):
         bar = QFrame()
         bar.setObjectName("PlayerBar")
         bar.setFixedHeight(110)
-        
         bar_v_layout = QVBoxLayout(bar) 
 
         # 进度
@@ -385,20 +403,35 @@ class SodaPlayer(QMainWindow):
                 self.scan_music()
             except Exception as e: QMessageBox.warning(self, "错误", str(e))
 
-    # --- B站下载 ---
+    # --- B站下载 (合集支持 + 自动改MP4) ---
     def download_from_bilibili(self):
-        if not self.music_folder: return QMessageBox.warning(self, "提示", "请先设置文件夹")
-        u, ok = QInputDialog.getText(self, "B站下载", "合集/视频链接:")
-        if ok and u:
-            self.lbl_curr_time.setText("准备下载...")
-            self.dl = BilibiliDownloader(u, self.music_folder)
-            self.dl.progress_signal.connect(lambda m: self.lbl_curr_time.setText(m))
-            self.dl.finished_signal.connect(self.on_dl_finish)
-            self.dl.start()
+        if not self.music_folder: 
+            return QMessageBox.warning(self, "提示", "请先设置音乐文件夹")
+        
+        url, ok = QInputDialog.getText(self, "B站下载", "视频链接 (BV号/合集):")
+        if not ok or not url: return
+
+        # 模式选择
+        msg_box = QMessageBox()
+        msg_box.setWindowTitle("下载选项")
+        msg_box.setText("请选择下载模式：")
+        btn_single = msg_box.addButton("仅当前视频", QMessageBox.ActionRole)
+        btn_batch = msg_box.addButton("整个合集/列表", QMessageBox.ActionRole)
+        msg_box.addButton("取消", QMessageBox.RejectRole)
+        msg_box.exec_()
+        
+        if msg_box.clickedButton() not in [btn_single, btn_batch]: return
+        dl_mode = 0 if msg_box.clickedButton() == btn_single else 1
+
+        self.lbl_curr_time.setText("准备下载...")
+        self.dl = BilibiliDownloader(url, self.music_folder, dl_mode)
+        self.dl.progress_signal.connect(lambda m: self.lbl_curr_time.setText(m))
+        self.dl.finished_signal.connect(self.on_dl_finish)
+        self.dl.start()
     
     def on_dl_finish(self):
         self.scan_music()
-        QMessageBox.information(self, "完成", "所有任务结束")
+        QMessageBox.information(self, "完成", "下载任务结束")
 
     # --- 核心播放逻辑 ---
     def select_folder(self):
@@ -409,8 +442,10 @@ class SodaPlayer(QMainWindow):
         self.playlist = []
         self.list_widget.clear()
         if not os.path.exists(self.music_folder): return
+        # 扫描 mp4
         exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
         files = [x for x in os.listdir(self.music_folder) if x.lower().endswith(exts)]
+        files.sort() # 按名称排序
         for f in files:
             self.playlist.append({"path": os.path.join(self.music_folder, f), "name": f})
             self.list_widget.addItem(os.path.splitext(f)[0])
@@ -431,7 +466,6 @@ class SodaPlayer(QMainWindow):
         self.parse_lrc(os.path.splitext(song["path"])[0] + ".lrc")
 
     def parse_lrc(self, path):
-        # 100% 修复的语法
         self.lyrics = []
         self.panel_lyric.clear()
         self.desktop_lyric.set_lyrics("", "等待歌词...", "")
@@ -442,14 +476,10 @@ class SodaPlayer(QMainWindow):
         
         lines = []
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+            with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
         except:
-            try:
-                with open(path, 'r', encoding='gbk') as f:
-                    lines = f.readlines()
-            except:
-                return
+            try: with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
+            except: return
 
         import re
         p = re.compile(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)')
@@ -539,21 +569,14 @@ class SodaPlayer(QMainWindow):
         if self.desktop_lyric.isVisible(): self.desktop_lyric.hide()
         else: self.desktop_lyric.show()
     def load_config(self):
-        # 100% 修复的语法
         if os.path.exists(CONFIG_FILE):
             try:
-                with open(CONFIG_FILE, 'r') as f:
-                    data = json.load(f)
-                    self.music_folder = data.get("folder", "")
+                with open(CONFIG_FILE,'r') as f:
+                    self.music_folder = json.load(f).get("folder","")
                     if self.music_folder: self.scan_music()
             except: pass
-
     def save_config(self):
-        # 100% 修复的语法
-        try:
-            with open(CONFIG_FILE, 'w') as f:
-                json.dump({"folder": self.music_folder}, f)
-        except: pass
+        with open(CONFIG_FILE,'w') as f: json.dump({"folder":self.music_folder},f)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
