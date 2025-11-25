@@ -91,19 +91,15 @@ class BilibiliDownloader(QThread):
                 self.progress_signal.emit("✅ 下载完成，准备下一个...")
 
         ydl_opts = {
-            # --- 核心修改 ---
-            # 强制下载 MP4 (best video+audio)，兼容性最好
-            # Windows 播放器可以直接播放 MP4 里的音频
+            # 强制下载 MP4 (解决播放问题)
             'format': 'best[ext=mp4]/best', 
-            
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
-            'noplaylist': False, # 允许下载列表/合集
-            'ignoreerrors': True, # 忽略会员专属等下载失败的
+            'noplaylist': False,
+            'ignoreerrors': True, 
             'progress_hooks': [progress_hook],
             'quiet': True,
             'nocheckcertificate': True,
-            # 兼容 B站 分P 命名
-            'playlist_items': '1-100', # 默认限制前100集，防止下载几千集的动漫卡死，可根据需要改
+            'playlist_items': '1-100', 
         }
 
         try:
@@ -180,7 +176,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (MP4兼容版)")
+        self.setWindowTitle("汽水音乐 (最终完美版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -389,7 +385,7 @@ class SodaPlayer(QMainWindow):
                 self.scan_music()
             except Exception as e: QMessageBox.warning(self, "错误", str(e))
 
-    # --- B站下载 (合集支持 + MP4) ---
+    # --- B站下载 ---
     def download_from_bilibili(self):
         if not self.music_folder: return QMessageBox.warning(self, "提示", "请先设置文件夹")
         u, ok = QInputDialog.getText(self, "B站下载", "合集/视频链接:")
@@ -413,7 +409,6 @@ class SodaPlayer(QMainWindow):
         self.playlist = []
         self.list_widget.clear()
         if not os.path.exists(self.music_folder): return
-        # 增加 .mp4 支持
         exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
         files = [x for x in os.listdir(self.music_folder) if x.lower().endswith(exts)]
         for f in files:
@@ -436,6 +431,7 @@ class SodaPlayer(QMainWindow):
         self.parse_lrc(os.path.splitext(song["path"])[0] + ".lrc")
 
     def parse_lrc(self, path):
+        # 100% 修复的语法
         self.lyrics = []
         self.panel_lyric.clear()
         self.desktop_lyric.set_lyrics("", "等待歌词...", "")
@@ -446,10 +442,14 @@ class SodaPlayer(QMainWindow):
         
         lines = []
         try:
-            with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
+            with open(path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
         except:
-            try: with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
-            except: return
+            try:
+                with open(path, 'r', encoding='gbk') as f:
+                    lines = f.readlines()
+            except:
+                return
 
         import re
         p = re.compile(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)')
@@ -502,7 +502,6 @@ class SodaPlayer(QMainWindow):
             else: self.play_next()
 
     def handle_player_error(self):
-        # 播放错误时尝试切歌（例如文件损坏）
         self.play_next()
 
     def on_duration_changed(self, dur):
@@ -540,14 +539,21 @@ class SodaPlayer(QMainWindow):
         if self.desktop_lyric.isVisible(): self.desktop_lyric.hide()
         else: self.desktop_lyric.show()
     def load_config(self):
+        # 100% 修复的语法
         if os.path.exists(CONFIG_FILE):
             try:
-                with open(CONFIG_FILE,'r') as f:
-                    self.music_folder = json.load(f).get("folder","")
+                with open(CONFIG_FILE, 'r') as f:
+                    data = json.load(f)
+                    self.music_folder = data.get("folder", "")
                     if self.music_folder: self.scan_music()
             except: pass
+
     def save_config(self):
-        with open(CONFIG_FILE,'w') as f: json.dump({"folder":self.music_folder},f)
+        # 100% 修复的语法
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump({"folder": self.music_folder}, f)
+        except: pass
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
