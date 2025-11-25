@@ -74,7 +74,6 @@ class BilibiliDownloader(QThread):
         self.url = url
         self.folder = folder
         self.mode = mode # 0:单曲, 1:合集
-        self.downloaded_files = []
 
     def run(self):
         if not yt_dlp:
@@ -85,17 +84,17 @@ class BilibiliDownloader(QThread):
             if d['status'] == 'downloading':
                 p = d.get('_percent_str', '')
                 filename = os.path.basename(d.get('filename', '未知'))
-                if len(filename) > 25:
-                    filename = filename[:25] + "..."
+                if len(filename) > 25: filename = filename[:25] + "..."
                 self.progress_signal.emit(f"⬇️ {p} : {filename}")
             elif d['status'] == 'finished':
-                self.downloaded_files.append(d['filename'])
-                self.progress_signal.emit("✅ 下载完成，正在转码...")
+                self.progress_signal.emit("✅ 下载完成")
 
+        # 0=单曲(noplaylist=True), 1=合集(noplaylist=False)
         is_playlist = True if self.mode == 1 else False
 
         ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best',
+            # 强制下载 m4a 音频 (Windows最兼容的格式)
+            'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best', 
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
             'noplaylist': not is_playlist,
             'ignoreerrors': True,
@@ -105,26 +104,11 @@ class BilibiliDownloader(QThread):
         }
 
         try:
-            self.progress_signal.emit("🔍 正在解析...")
+            self.progress_signal.emit("🔍 正在解析链接...")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
-            
-            self.progress_signal.emit("🔧 正在处理文件格式...")
-            count = 0
-            for file_path in self.downloaded_files:
-                if file_path.endswith('.m4a'):
-                    new_path = file_path[:-4] + '.mp4'
-                    try:
-                        if os.path.exists(new_path):
-                            os.remove(new_path)
-                        os.rename(file_path, new_path)
-                        count += 1
-                    except Exception as e:
-                        print(f"Rename error: {e}")
-            
-            self.progress_signal.emit(f"🎉 处理完成，共 {count} 首")
+            self.progress_signal.emit("🎉 任务全部结束")
             self.finished_signal.emit()
-            
         except Exception as e:
             self.progress_signal.emit(f"❌ 错误: {str(e)}")
 
@@ -174,21 +158,14 @@ class DesktopLyricWindow(QWidget):
         self.labels[2].setText(n)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-        elif event.button() == Qt.RightButton:
-            self.change_font()
+        if event.button() == Qt.LeftButton: self.drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+        elif event.button() == Qt.RightButton: self.change_font()
     def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton:
-            self.move(event.globalPos() - self.drag_pos)
+        if event.buttons() == Qt.LeftButton: self.move(event.globalPos() - self.drag_pos)
     def wheelEvent(self, event):
         d = event.angleDelta().y()
         s = self.current_font.pointSize()
-        if d > 0:
-            size = min(100, s + 2)
-        else:
-            size = max(12, s - 2)
-        self.current_font.setPointSize(size)
+        self.current_font.setPointSize(min(100, s+2) if d>0 else max(12, s-2))
         self.update_styles()
     def change_font(self):
         f, ok = QFontDialog.getFont(self.current_font, self, "歌词字体")
@@ -200,7 +177,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (完美修复版)")
+        self.setWindowTitle("汽水音乐 (最终修复版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -444,6 +421,7 @@ class SodaPlayer(QMainWindow):
         self.playlist = []
         self.list_widget.clear()
         if not os.path.exists(self.music_folder): return
+        # 增加扫描 .m4a (AAC音频) 和 .mp4
         exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
         files = [x for x in os.listdir(self.music_folder) if x.lower().endswith(exts)]
         files.sort()
@@ -550,7 +528,10 @@ class SodaPlayer(QMainWindow):
                 self.play_next()
 
     def handle_player_error(self):
-        self.play_next()
+        # 错误弹窗提示
+        err_msg = self.player.errorString()
+        QMessageBox.warning(self, "播放错误", f"无法播放该文件：\n{err_msg}\n\n可能原因：缺少解码器或文件损坏。")
+        self.btn_play.setText("▶")
 
     def on_duration_changed(self, dur):
         self.slider.setRange(0, dur)
