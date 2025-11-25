@@ -10,7 +10,7 @@ from PyQt5.QtCore import Qt, QTimer, QUrl, QThread, pyqtSignal, QSize
 from PyQt5.QtGui import QFont, QColor, QIcon
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
-# 引入 yt_dlp 用于下载B站音频
+# 引入 yt_dlp
 try:
     import yt_dlp
 except ImportError:
@@ -19,7 +19,7 @@ except ImportError:
 # --- 配置文件 ---
 CONFIG_FILE = "config.json"
 
-# --- 汽水风样式 (宋体+清新绿) ---
+# --- 汽水风样式 ---
 STYLESHEET = """
 QMainWindow { background-color: #FFFFFF; }
 QWidget { font-family: "SimSun", "宋体", serif; color: #333333; }
@@ -34,7 +34,7 @@ QPushButton.NavBtn {
     padding: 12px 20px; font-size: 14px; color: #666; border-radius: 8px; margin: 4px 10px;
 }
 QPushButton.NavBtn:hover { background-color: #E8F5E9; color: #1ECD97; }
-QPushButton#DownloadBtn { color: #FF6699; } /* B站粉 */
+QPushButton#DownloadBtn { color: #FF6699; }
 QPushButton#DownloadBtn:hover { background-color: #FFF0F5; color: #FF6699; }
 
 /* 列表 */
@@ -52,10 +52,10 @@ QPushButton#CtrlBtn { background: transparent; border: none; font-size: 18px; co
 QPushButton#CtrlBtn:hover { color: #1ECD97; }
 """
 
-# --- 后台下载线程 (防止界面卡死) ---
+# --- 后台下载线程 ---
 class BilibiliDownloader(QThread):
-    finished_signal = pyqtSignal(str) # 成功信号
-    error_signal = pyqtSignal(str)    # 失败信号
+    finished_signal = pyqtSignal(str)
+    error_signal = pyqtSignal(str)
 
     def __init__(self, url, folder):
         super().__init__()
@@ -67,14 +67,11 @@ class BilibiliDownloader(QThread):
             self.error_signal.emit("错误：未安装 yt-dlp 库")
             return
 
-        # 配置：只下载音频，尽量转为 m4a (兼容性好且无需ffmpeg转码即可播放)
         ydl_opts = {
             'format': 'bestaudio[ext=m4a]/bestaudio/best',
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
             'noplaylist': True,
             'quiet': True,
-            # 注意：GitHub Actions 环境通常没有 ffmpeg，所以我们直接下载源音频流
-            # Windows 的 QMediaPlayer 通常能直接播放 m4a
         }
 
         try:
@@ -85,7 +82,7 @@ class BilibiliDownloader(QThread):
         except Exception as e:
             self.error_signal.emit(f"下载失败：{str(e)}")
 
-# --- 桌面歌词 (保持原样) ---
+# --- 桌面歌词 ---
 class DesktopLyricWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -160,11 +157,9 @@ class SodaPlayer(QMainWindow):
         self.current_index = -1
         self.offset = 0
         
-        # 替换为 PyQt 原生播放器
         self.player = QMediaPlayer()
         self.player.positionChanged.connect(self.on_position_changed)
         self.player.stateChanged.connect(self.on_state_changed)
-        # 播放结束自动下一首
         self.player.mediaStatusChanged.connect(self.on_media_status_changed)
 
         self.desktop_lyric = DesktopLyricWindow()
@@ -193,7 +188,6 @@ class SodaPlayer(QMainWindow):
         self.btn_local.setProperty("NavBtn", True)
         side_layout.addWidget(self.btn_local)
 
-        # B站下载按钮
         self.btn_bili = QPushButton("📺  B站/视频提取")
         self.btn_bili.setObjectName("DownloadBtn")
         self.btn_bili.setProperty("NavBtn", True)
@@ -219,7 +213,6 @@ class SodaPlayer(QMainWindow):
         r_layout = QVBoxLayout(right_panel)
         r_layout.setContentsMargins(0, 0, 0, 0)
         
-        # 列表与歌词
         content = QWidget()
         c_layout = QHBoxLayout(content)
         
@@ -277,15 +270,15 @@ class SodaPlayer(QMainWindow):
         r_layout.addWidget(bar)
         layout.addWidget(right_panel)
 
-    # --- B站下载逻辑 ---
+    # --- 逻辑 ---
     def download_from_bilibili(self):
         if not self.music_folder or not os.path.exists(self.music_folder):
             QMessageBox.warning(self, "提示", "请先设置音乐保存文件夹")
             return
 
-        url, ok = QInputDialog.getText(self, "B站/视频音频提取", "请输入视频链接 (例如 BV...):")
+        url, ok = QInputDialog.getText(self, "B站音频提取", "请输入视频链接:")
         if ok and url:
-            self.lbl_title.setText("正在解析下载中，请稍候...")
+            self.lbl_title.setText("正在解析下载...")
             self.downloader = BilibiliDownloader(url, self.music_folder)
             self.downloader.finished_signal.connect(self.on_download_finished)
             self.downloader.error_signal.connect(self.on_download_error)
@@ -293,14 +286,13 @@ class SodaPlayer(QMainWindow):
 
     def on_download_finished(self, msg):
         QMessageBox.information(self, "成功", msg)
-        self.scan_music() # 刷新列表
+        self.scan_music()
         self.lbl_title.setText("下载完成")
 
     def on_download_error(self, msg):
         QMessageBox.warning(self, "失败", msg)
         self.lbl_title.setText("下载失败")
 
-    # --- 播放逻辑 ---
     def select_folder(self):
         f = QFileDialog.getExistingDirectory(self, "选择音乐目录")
         if f:
@@ -313,7 +305,6 @@ class SodaPlayer(QMainWindow):
         self.list_widget.clear()
         if not os.path.exists(self.music_folder): return
         
-        # 支持更多格式
         exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg')
         files = [x for x in os.listdir(self.music_folder) if x.lower().endswith(exts)]
         for f in files:
@@ -337,24 +328,31 @@ class SodaPlayer(QMainWindow):
         self.btn_play.setText("⏸")
         self.list_widget.setCurrentRow(idx)
         
-        # 歌词
         lrc_path = os.path.splitext(song["path"])[0] + ".lrc"
         self.parse_lrc(lrc_path)
 
     def parse_lrc(self, path):
+        # --- 这里的语法错误已经修复 ---
         self.lyrics = []
         self.panel_lyric.clear()
         self.desktop_lyric.set_lyrics("", "等待歌词...", "")
         self.offset = 0
+        
         if not os.path.exists(path): 
             self.panel_lyric.addItem("纯音乐 / 无歌词")
             return
         
+        lines = []
+        # 修复后的标准写法
         try:
-            with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
+            with open(path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
         except:
-            try: with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
-            except: return
+            try:
+                with open(path, 'r', encoding='gbk') as f:
+                    lines = f.readlines()
+            except:
+                return
 
         import re
         reg = re.compile(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)')
@@ -368,12 +366,8 @@ class SodaPlayer(QMainWindow):
                     self.lyrics.append({"t": t, "txt": txt.strip()})
                     self.panel_lyric.addItem(txt.strip())
 
-    # --- 播放状态监听 ---
     def on_position_changed(self, position):
-        # 歌词同步 (position是毫秒)
         seconds = position / 1000 + self.offset
-        
-        # 更新时间显示
         total = self.player.duration()
         self.lbl_time.setText(f"{self.fmt_time(position)} / {self.fmt_time(total)}")
         
@@ -415,12 +409,10 @@ class SodaPlayer(QMainWindow):
         if self.playlist: self.play_index((self.current_index + 1) % len(self.playlist))
     def play_prev(self):
         if self.playlist: self.play_index((self.current_index - 1) % len(self.playlist))
-    
     def adjust_offset(self, v): self.offset += v
     def toggle_lyric(self):
         if self.desktop_lyric.isVisible(): self.desktop_lyric.hide()
         else: self.desktop_lyric.show()
-
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
             try:
@@ -428,7 +420,6 @@ class SodaPlayer(QMainWindow):
                     self.music_folder = json.load(f).get("folder", "")
                     if self.music_folder: self.scan_music()
             except: pass
-
     def save_config(self):
         with open(CONFIG_FILE, 'w') as f: json.dump({"folder": self.music_folder}, f)
 
