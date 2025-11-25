@@ -172,7 +172,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (全能版)")
+        self.setWindowTitle("汽水音乐 (完美版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -392,15 +392,14 @@ class SodaPlayer(QMainWindow):
         if not self.music_folder: return QMessageBox.warning(self, "提示", "请先设置文件夹")
         u, ok = QInputDialog.getText(self, "B站/合集下载", "链接 (BV/List):")
         if ok and u:
-            self.lbl_title.setText("准备下载...")
+            self.lbl_curr_time.setText("下载中...")
             self.dl = BilibiliDownloader(u, self.music_folder)
-            self.dl.progress_signal.connect(lambda m: self.lbl_title.setText(m))
+            self.dl.progress_signal.connect(lambda m: self.lbl_curr_time.setText(m)) # 简单显示状态
             self.dl.finished_signal.connect(self.on_dl_finish)
             self.dl.start()
     
     def on_dl_finish(self):
         self.scan_music()
-        self.lbl_title.setText("下载完成")
         QMessageBox.information(self, "完成", "所有任务结束")
 
     # --- 核心播放逻辑 ---
@@ -429,13 +428,11 @@ class SodaPlayer(QMainWindow):
         self.player.setPlaybackRate(self.rate) # 保持当前倍速
         self.player.play()
         
-        self.lbl_title.setText(os.path.splitext(song["name"])[0])
         self.btn_play.setText("⏸")
         self.list_widget.setCurrentRow(idx)
         self.parse_lrc(os.path.splitext(song["path"])[0] + ".lrc")
 
     def parse_lrc(self, path):
-        # 修复了缩进错误的标准写法
         self.lyrics = []
         self.panel_lyric.clear()
         self.desktop_lyric.set_lyrics("", "等待歌词...", "")
@@ -507,6 +504,13 @@ class SodaPlayer(QMainWindow):
         else:
             prev = (self.current_index - 1) % len(self.playlist)
         self.play_index(prev)
+
+    # --- 这里补上了之前遗漏的状态切换函数 ---
+    def on_state_changed(self, state):
+        if state == QMediaPlayer.PlayingState:
+            self.btn_play.setText("⏸")
+        else:
+            self.btn_play.setText("▶")
 
     def on_media_status_changed(self, status):
         # 自动播放下一首逻辑
