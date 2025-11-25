@@ -44,15 +44,18 @@ QListWidget::item:selected { background-color: #FFF8E1; color: #F9A825; }
 
 QFrame#PlayerBar { background-color: #FFFFFF; border-top: 1px solid #F0F0F0; }
 
+/* 播放按钮大一点 */
 QPushButton#PlayBtn { 
     background-color: #1ECD97; color: white; border-radius: 25px; 
     font-size: 20px; min-width: 50px; min-height: 50px;
 }
 QPushButton#PlayBtn:hover { background-color: #18c48f; }
 
+/* 小控制按钮 */
 QPushButton.CtrlBtn { background: transparent; border: none; font-size: 16px; color: #666; }
 QPushButton.CtrlBtn:hover { color: #1ECD97; background-color: #F0F0F0; border-radius: 4px; }
 
+/* 进度条样式 */
 QSlider::groove:horizontal {
     border: 1px solid #EEE; height: 6px; background: #F0F0F0; margin: 2px 0; border-radius: 3px;
 }
@@ -64,7 +67,7 @@ QSlider::sub-page:horizontal {
 }
 """
 
-# --- B站下载线程 (核心修复) ---
+# --- B站下载线程 ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
@@ -81,34 +84,26 @@ class BilibiliDownloader(QThread):
 
         def progress_hook(d):
             if d['status'] == 'downloading':
-                # 计算百分比
-                p = d.get('_percent_str', '')
                 filename = os.path.basename(d.get('filename', '未知'))
-                # 截断太长的文件名显示
-                if len(filename) > 20: filename = filename[:20] + "..."
-                self.progress_signal.emit(f"下载 {p}: {filename}")
+                self.progress_signal.emit(f"下载中: {filename}")
             elif d['status'] == 'finished':
-                self.progress_signal.emit("下载完成，正在处理...")
+                self.progress_signal.emit("转码中...")
 
         ydl_opts = {
-            # --- 核心修复 ---
-            # 强制只下载 m4a 格式 (Windows 原生支持)
-            # 如果不加这个，它会下载 webm，导致 PyQt5 无法播放
-            'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best', 
-            
+            # 强制 m4a 格式，修复播放问题
+            'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio', 
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
-            'noplaylist': False, # 允许下载列表
+            'noplaylist': False,
             'ignoreerrors': True,
             'progress_hooks': [progress_hook],
             'quiet': True,
-            'nocheckcertificate': True,
         }
 
         try:
-            self.progress_signal.emit("正在解析链接...")
+            self.progress_signal.emit("解析中...")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
-            self.progress_signal.emit("所有任务已完成")
+            self.progress_signal.emit("任务完成")
             self.finished_signal.emit()
         except Exception as e:
             self.progress_signal.emit(f"错误: {str(e)}")
@@ -178,7 +173,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (B站播放修复版)")
+        self.setWindowTitle("汽水音乐 (全能版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -189,16 +184,15 @@ class SodaPlayer(QMainWindow):
         self.offset = 0
         
         # 播放设置
-        self.mode = 0 # 0:列表 1:单曲 2:随机
-        self.rate = 1.0 
-        self.is_slider_pressed = False
+        self.mode = 0 # 0:列表循环, 1:单曲循环, 2:随机播放
+        self.rate = 1.0 # 倍速
+        self.is_slider_pressed = False # 拖拽锁
 
         self.player = QMediaPlayer()
         self.player.positionChanged.connect(self.on_position_changed)
         self.player.durationChanged.connect(self.on_duration_changed)
         self.player.stateChanged.connect(self.on_state_changed)
         self.player.mediaStatusChanged.connect(self.on_media_status_changed)
-        self.player.error.connect(self.handle_player_error) # 错误处理
 
         self.desktop_lyric = DesktopLyricWindow()
         self.desktop_lyric.show()
@@ -212,7 +206,7 @@ class SodaPlayer(QMainWindow):
         layout = QHBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # 侧边栏
+        # 1. 侧边栏
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(240)
@@ -246,7 +240,7 @@ class SodaPlayer(QMainWindow):
         
         layout.addWidget(sidebar)
 
-        # 右侧
+        # 2. 右侧
         right_panel = QWidget()
         r_layout = QVBoxLayout(right_panel)
         r_layout.setContentsMargins(0, 0, 0, 0)
@@ -272,9 +266,10 @@ class SodaPlayer(QMainWindow):
         bar = QFrame()
         bar.setObjectName("PlayerBar")
         bar.setFixedHeight(110)
-        bar_v_layout = QVBoxLayout(bar)
+        
+        bar_v_layout = QVBoxLayout(bar) # 垂直布局：上面进度条，下面控制按钮
 
-        # 进度
+        # 进度条区
         progress_layout = QHBoxLayout()
         self.lbl_curr_time = QLabel("00:00")
         self.lbl_total_time = QLabel("00:00")
@@ -283,13 +278,17 @@ class SodaPlayer(QMainWindow):
         self.slider.sliderPressed.connect(self.slider_pressed)
         self.slider.sliderReleased.connect(self.slider_released)
         self.slider.valueChanged.connect(self.slider_moved)
+        
         progress_layout.addWidget(self.lbl_curr_time)
         progress_layout.addWidget(self.slider)
         progress_layout.addWidget(self.lbl_total_time)
+        
         bar_v_layout.addLayout(progress_layout)
 
-        # 控制
+        # 按钮区
         ctrl_layout = QHBoxLayout()
+        
+        # 模式切换
         self.btn_mode = QPushButton("🔁")
         self.btn_mode.setToolTip("当前: 列表循环")
         self.btn_mode.setProperty("CtrlBtn", True)
@@ -307,6 +306,7 @@ class SodaPlayer(QMainWindow):
         btn_next.setProperty("CtrlBtn", True)
         btn_next.clicked.connect(self.play_next)
 
+        # 倍速切换
         self.btn_rate = QPushButton("1.0x")
         self.btn_rate.setProperty("CtrlBtn", True)
         self.btn_rate.clicked.connect(self.toggle_rate)
@@ -323,12 +323,14 @@ class SodaPlayer(QMainWindow):
         ctrl_layout.addWidget(self.btn_rate)
         ctrl_layout.addStretch()
 
+        # 微调按钮放在最右边
         btn_offset = QPushButton("Offset+0.5s")
         btn_offset.setStyleSheet("color:#AAA; border:none;")
         btn_offset.clicked.connect(lambda: self.adjust_offset(0.5))
         ctrl_layout.addWidget(btn_offset)
 
         bar_v_layout.addLayout(ctrl_layout)
+        
         r_layout.addWidget(bar)
         layout.addWidget(right_panel)
 
@@ -350,7 +352,7 @@ class SodaPlayer(QMainWindow):
         menu.addAction(act_del)
         menu.exec_(self.list_widget.mapToGlobal(pos))
 
-    # --- 逻辑 ---
+    # --- 文件操作 (改名/删除/歌词) ---
     def rename_song(self, idx):
         song = self.playlist[idx]
         old = song["path"]
@@ -386,13 +388,14 @@ class SodaPlayer(QMainWindow):
                 self.scan_music()
             except Exception as e: QMessageBox.warning(self, "错误", str(e))
 
+    # --- B站下载 ---
     def download_from_bilibili(self):
         if not self.music_folder: return QMessageBox.warning(self, "提示", "请先设置文件夹")
-        u, ok = QInputDialog.getText(self, "B站下载", "链接 (BV/List):")
+        u, ok = QInputDialog.getText(self, "B站/合集下载", "链接 (BV/List):")
         if ok and u:
             self.lbl_curr_time.setText("下载中...")
             self.dl = BilibiliDownloader(u, self.music_folder)
-            self.dl.progress_signal.connect(lambda m: self.lbl_curr_time.setText(m))
+            self.dl.progress_signal.connect(lambda m: self.lbl_curr_time.setText(m)) # 简单显示状态
             self.dl.finished_signal.connect(self.on_dl_finish)
             self.dl.start()
     
@@ -400,6 +403,7 @@ class SodaPlayer(QMainWindow):
         self.scan_music()
         QMessageBox.information(self, "完成", "所有任务结束")
 
+    # --- 核心播放逻辑 ---
     def select_folder(self):
         f = QFileDialog.getExistingDirectory(self, "选择目录")
         if f: self.music_folder = f; self.scan_music(); self.save_config()
@@ -422,7 +426,7 @@ class SodaPlayer(QMainWindow):
         song = self.playlist[idx]
         
         self.player.setMedia(QMediaContent(QUrl.fromLocalFile(song["path"])))
-        self.player.setPlaybackRate(self.rate)
+        self.player.setPlaybackRate(self.rate) # 保持当前倍速
         self.player.play()
         
         self.btn_play.setText("⏸")
@@ -430,6 +434,7 @@ class SodaPlayer(QMainWindow):
         self.parse_lrc(os.path.splitext(song["path"])[0] + ".lrc")
 
     def parse_lrc(self, path):
+        # 修复了缩进错误的标准写法
         self.lyrics = []
         self.panel_lyric.clear()
         self.desktop_lyric.set_lyrics("", "等待歌词...", "")
@@ -440,10 +445,14 @@ class SodaPlayer(QMainWindow):
         
         lines = []
         try:
-            with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
+            with open(path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
         except:
-            try: with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
-            except: return
+            try:
+                with open(path, 'r', encoding='gbk') as f:
+                    lines = f.readlines()
+            except:
+                return
 
         import re
         p = re.compile(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)')
@@ -457,56 +466,73 @@ class SodaPlayer(QMainWindow):
                     self.lyrics.append({"t": t, "txt": txt.strip()})
                     self.panel_lyric.addItem(txt.strip())
 
+    # --- 播放控制增强 ---
     def toggle_play(self):
         if self.player.state() == QMediaPlayer.PlayingState: self.player.pause()
         elif self.playlist: self.player.play()
     
     def toggle_mode(self):
+        # 0:列表循环 1:单曲 2:随机
         self.mode = (self.mode + 1) % 3
         modes = ["🔁", "🔂", "🔀"]
+        tips = ["列表循环", "单曲循环", "随机播放"]
         self.btn_mode.setText(modes[self.mode])
+        self.btn_mode.setToolTip(tips[self.mode])
 
     def toggle_rate(self):
+        # 1.0 -> 1.25 -> 1.5 -> 2.0 -> 0.5 -> 1.0
         rates = [1.0, 1.25, 1.5, 2.0, 0.5]
-        try: curr_idx = rates.index(self.rate)
-        except: curr_idx = 0
+        try:
+            curr_idx = rates.index(self.rate)
+        except:
+            curr_idx = 0
+        
         self.rate = rates[(curr_idx + 1) % len(rates)]
         self.player.setPlaybackRate(self.rate)
         self.btn_rate.setText(f"{self.rate}x")
 
     def play_next(self):
         if not self.playlist: return
-        if self.mode == 2: nxt = random.randint(0, len(self.playlist)-1)
-        else: nxt = (self.current_index + 1) % len(self.playlist)
+        if self.mode == 2: # 随机
+            nxt = random.randint(0, len(self.playlist)-1)
+        else:
+            nxt = (self.current_index + 1) % len(self.playlist)
         self.play_index(nxt)
 
     def play_prev(self):
         if not self.playlist: return
-        if self.mode == 2: prev = random.randint(0, len(self.playlist)-1)
-        else: prev = (self.current_index - 1) % len(self.playlist)
+        if self.mode == 2:
+            prev = random.randint(0, len(self.playlist)-1)
+        else:
+            prev = (self.current_index - 1) % len(self.playlist)
         self.play_index(prev)
 
+    # --- 这里补上了之前遗漏的状态切换函数 ---
     def on_state_changed(self, state):
-        if state == QMediaPlayer.PlayingState: self.btn_play.setText("⏸")
-        else: self.btn_play.setText("▶")
+        if state == QMediaPlayer.PlayingState:
+            self.btn_play.setText("⏸")
+        else:
+            self.btn_play.setText("▶")
 
     def on_media_status_changed(self, status):
+        # 自动播放下一首逻辑
         if status == QMediaPlayer.EndOfMedia:
-            if self.mode == 1: self.player.play()
-            else: self.play_next()
+            if self.mode == 1: # 单曲循环
+                self.player.play()
+            else:
+                self.play_next()
 
-    def handle_player_error(self):
-        self.btn_play.setText("▶")
-        # 简单处理：播放失败自动切下一首
-        self.play_next()
-
+    # --- 进度条逻辑 ---
     def on_duration_changed(self, dur):
         self.slider.setRange(0, dur)
         self.lbl_total_time.setText(self.fmt_time(dur))
 
     def on_position_changed(self, pos):
-        if not self.is_slider_pressed: self.slider.setValue(pos)
+        if not self.is_slider_pressed:
+            self.slider.setValue(pos)
         self.lbl_curr_time.setText(self.fmt_time(pos))
+        
+        # 歌词同步
         sec = pos / 1000 + self.offset
         if self.lyrics:
             idx = -1
@@ -527,9 +553,11 @@ class SodaPlayer(QMainWindow):
         self.player.setPosition(self.slider.value())
     def slider_moved(self, val):
         if self.is_slider_pressed: self.lbl_curr_time.setText(self.fmt_time(val))
+
     def fmt_time(self, ms):
         s = ms // 1000
         return f"{s//60:02}:{s%60:02}"
+    
     def adjust_offset(self, v): self.offset += v
     def toggle_lyric(self):
         if self.desktop_lyric.isVisible(): self.desktop_lyric.hide()
