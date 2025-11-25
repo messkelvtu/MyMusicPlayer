@@ -10,27 +10,33 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    # 升级到 v4
     - uses: actions/checkout@v4
 
-    # 升级到 v5
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
+    # 1. 安装所有必要的库
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller PyQt5 PyQt5-sip yt-dlp
 
+    # 2. 检查代码是否有语法错误 (这一步能帮我们提前发现复制粘贴的问题)
+    - name: Check Syntax
+      run: |
+        python -m py_compile main.py
+
+    # 3. 开始打包 (使用超级指令)
+    # --collect-all yt_dlp: 强制收集 yt-dlp 的所有文件
+    # --hidden-import: 强制引入多媒体模块
     - name: Build EXE
       run: |
-        pyinstaller --noconsole --onefile --name "MyMusicPlayer" main.py
+        pyinstaller --noconsole --onefile --collect-all yt_dlp --hidden-import PyQt5.QtMultimedia --hidden-import PyQt5.QtNetwork --name "SodaMusicPlayer" main.py
 
-    # 关键修改：这里升级到了 v4，修复你的报错
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: MyMusicPlayer-EXE
-        path: dist/MyMusicPlayer.exe
+        name: SodaMusicPlayer-EXE
+        path: dist/SodaMusicPlayer.exe
