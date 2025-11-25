@@ -10,10 +10,12 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v3
+    # 升级到 v4
+    - uses: actions/checkout@v4
 
+    # 升级到 v5
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
@@ -22,20 +24,13 @@ jobs:
         python -m pip install --upgrade pip
         pip install pygame pyinstaller
 
-    - name: Check Files (Debug)
-      run: dir
-      # 这一步会列出你仓库里的文件，方便查看文件名到底是什么
-
     - name: Build EXE
-      # 注意：这里我又加了容错。
-      # 如果你的文件叫 main.py 它能跑，叫 MusicApp.py 也能跑。
       run: |
-        if (Test-Path main.py) { pyinstaller --noconsole --onefile --name "MyMusicPlayer" main.py }
-        elseif (Test-Path MusicApp.py) { pyinstaller --noconsole --onefile --name "MyMusicPlayer" MusicApp.py }
-        else { echo "Error: 找不到 .py 文件，请检查你的文件名！"; exit 1 }
+        pyinstaller --noconsole --onefile --name "MyMusicPlayer" main.py
 
+    # 关键修改：这里升级到了 v4，修复你的报错
     - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: MyMusicPlayer-EXE
         path: dist/MyMusicPlayer.exe
