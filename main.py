@@ -21,7 +21,7 @@ except ImportError:
 
 CONFIG_FILE = "config.json"
 
-# --- 样式表 (保持清新风格) ---
+# --- 样式表 ---
 STYLESHEET = """
 QMainWindow { background-color: #FFFFFF; }
 QWidget { font-family: "SimSun", "宋体", serif; color: #333333; }
@@ -64,7 +64,7 @@ QSlider::sub-page:horizontal {
 }
 """
 
-# --- B站下载线程 (核心修改：下载后重命名) ---
+# --- B站下载线程 ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
@@ -74,7 +74,7 @@ class BilibiliDownloader(QThread):
         self.url = url
         self.folder = folder
         self.mode = mode # 0:单曲, 1:合集
-        self.downloaded_files = [] # 记录下载的文件路径
+        self.downloaded_files = []
 
     def run(self):
         if not yt_dlp:
@@ -85,17 +85,16 @@ class BilibiliDownloader(QThread):
             if d['status'] == 'downloading':
                 p = d.get('_percent_str', '')
                 filename = os.path.basename(d.get('filename', '未知'))
-                if len(filename) > 25: filename = filename[:25] + "..."
+                if len(filename) > 25:
+                    filename = filename[:25] + "..."
                 self.progress_signal.emit(f"⬇️ {p} : {filename}")
             elif d['status'] == 'finished':
-                # 记录下载完成的文件路径
                 self.downloaded_files.append(d['filename'])
                 self.progress_signal.emit("✅ 下载完成，正在转码...")
 
         is_playlist = True if self.mode == 1 else False
 
         ydl_opts = {
-            # 依然下载 m4a，保证下载成功率
             'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
             'noplaylist': not is_playlist,
@@ -110,14 +109,12 @@ class BilibiliDownloader(QThread):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
             
-            # --- 核心修复：强制重命名为 mp4 ---
             self.progress_signal.emit("🔧 正在处理文件格式...")
             count = 0
             for file_path in self.downloaded_files:
                 if file_path.endswith('.m4a'):
                     new_path = file_path[:-4] + '.mp4'
                     try:
-                        # 如果目标mp4已存在，先删除，防止报错
                         if os.path.exists(new_path):
                             os.remove(new_path)
                         os.rename(file_path, new_path)
@@ -177,14 +174,21 @@ class DesktopLyricWindow(QWidget):
         self.labels[2].setText(n)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton: self.drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-        elif event.button() == Qt.RightButton: self.change_font()
+        if event.button() == Qt.LeftButton:
+            self.drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+        elif event.button() == Qt.RightButton:
+            self.change_font()
     def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton: self.move(event.globalPos() - self.drag_pos)
+        if event.buttons() == Qt.LeftButton:
+            self.move(event.globalPos() - self.drag_pos)
     def wheelEvent(self, event):
         d = event.angleDelta().y()
         s = self.current_font.pointSize()
-        self.current_font.setPointSize(min(100, s+2) if d>0 else max(12, s-2))
+        if d > 0:
+            size = min(100, s + 2)
+        else:
+            size = max(12, s - 2)
+        self.current_font.setPointSize(size)
         self.update_styles()
     def change_font(self):
         f, ok = QFontDialog.getFont(self.current_font, self, "歌词字体")
@@ -196,7 +200,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (MP4兼容版)")
+        self.setWindowTitle("汽水音乐 (完美修复版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -229,7 +233,6 @@ class SodaPlayer(QMainWindow):
         layout = QHBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # 侧边栏
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(240)
@@ -263,7 +266,6 @@ class SodaPlayer(QMainWindow):
         
         layout.addWidget(sidebar)
 
-        # 右侧
         right_panel = QWidget()
         r_layout = QVBoxLayout(right_panel)
         r_layout.setContentsMargins(0, 0, 0, 0)
@@ -285,13 +287,11 @@ class SodaPlayer(QMainWindow):
         
         r_layout.addWidget(content)
 
-        # 播放条
         bar = QFrame()
         bar.setObjectName("PlayerBar")
         bar.setFixedHeight(110)
         bar_v_layout = QVBoxLayout(bar) 
 
-        # 进度
         progress_layout = QHBoxLayout()
         self.lbl_curr_time = QLabel("00:00")
         self.lbl_total_time = QLabel("00:00")
@@ -305,7 +305,6 @@ class SodaPlayer(QMainWindow):
         progress_layout.addWidget(self.lbl_total_time)
         bar_v_layout.addLayout(progress_layout)
 
-        # 控制
         ctrl_layout = QHBoxLayout()
         self.btn_mode = QPushButton("🔁")
         self.btn_mode.setToolTip("当前: 列表循环")
@@ -349,7 +348,6 @@ class SodaPlayer(QMainWindow):
         r_layout.addWidget(bar)
         layout.addWidget(right_panel)
 
-    # --- 右键菜单 ---
     def show_context_menu(self, pos):
         item = self.list_widget.itemAt(pos)
         if not item: return
@@ -367,7 +365,6 @@ class SodaPlayer(QMainWindow):
         menu.addAction(act_del)
         menu.exec_(self.list_widget.mapToGlobal(pos))
 
-    # --- 文件操作 ---
     def rename_song(self, idx):
         song = self.playlist[idx]
         old = song["path"]
@@ -379,9 +376,11 @@ class SodaPlayer(QMainWindow):
                 if self.current_index == idx: self.player.stop()
                 os.rename(old, new_path)
                 old_lrc = os.path.splitext(old)[0] + ".lrc"
-                if os.path.exists(old_lrc): os.rename(old_lrc, os.path.join(self.music_folder, name + ".lrc"))
+                if os.path.exists(old_lrc):
+                    os.rename(old_lrc, os.path.join(self.music_folder, name + ".lrc"))
                 self.scan_music()
-            except Exception as e: QMessageBox.warning(self, "错误", str(e))
+            except Exception as e:
+                QMessageBox.warning(self, "错误", str(e))
 
     def import_lyric(self, idx):
         song = self.playlist[idx]
@@ -389,7 +388,8 @@ class SodaPlayer(QMainWindow):
         if f:
             t = os.path.join(self.music_folder, os.path.splitext(song["name"])[0] + ".lrc")
             shutil.copy(f, t)
-            if self.current_index == idx: self.parse_lrc(t)
+            if self.current_index == idx:
+                self.parse_lrc(t)
             QMessageBox.information(self,"成功","歌词已导入")
 
     def delete_song(self, idx):
@@ -399,11 +399,12 @@ class SodaPlayer(QMainWindow):
                 if self.current_index == idx: self.player.stop()
                 os.remove(song["path"])
                 lrc = os.path.splitext(song["path"])[0] + ".lrc"
-                if os.path.exists(lrc): os.remove(lrc)
+                if os.path.exists(lrc):
+                    os.remove(lrc)
                 self.scan_music()
-            except Exception as e: QMessageBox.warning(self, "错误", str(e))
+            except Exception as e:
+                QMessageBox.warning(self, "错误", str(e))
 
-    # --- B站下载 (合集支持 + 自动改MP4) ---
     def download_from_bilibili(self):
         if not self.music_folder: 
             return QMessageBox.warning(self, "提示", "请先设置音乐文件夹")
@@ -411,7 +412,6 @@ class SodaPlayer(QMainWindow):
         url, ok = QInputDialog.getText(self, "B站下载", "视频链接 (BV号/合集):")
         if not ok or not url: return
 
-        # 模式选择
         msg_box = QMessageBox()
         msg_box.setWindowTitle("下载选项")
         msg_box.setText("请选择下载模式：")
@@ -433,24 +433,26 @@ class SodaPlayer(QMainWindow):
         self.scan_music()
         QMessageBox.information(self, "完成", "下载任务结束")
 
-    # --- 核心播放逻辑 ---
     def select_folder(self):
         f = QFileDialog.getExistingDirectory(self, "选择目录")
-        if f: self.music_folder = f; self.scan_music(); self.save_config()
+        if f:
+            self.music_folder = f
+            self.scan_music()
+            self.save_config()
 
     def scan_music(self):
         self.playlist = []
         self.list_widget.clear()
         if not os.path.exists(self.music_folder): return
-        # 扫描 mp4
         exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
         files = [x for x in os.listdir(self.music_folder) if x.lower().endswith(exts)]
-        files.sort() # 按名称排序
+        files.sort()
         for f in files:
             self.playlist.append({"path": os.path.join(self.music_folder, f), "name": f})
             self.list_widget.addItem(os.path.splitext(f)[0])
 
-    def play_selected(self, item): self.play_index(self.list_widget.row(item))
+    def play_selected(self, item):
+        self.play_index(self.list_widget.row(item))
 
     def play_index(self, idx):
         if not self.playlist or idx < 0 or idx >= len(self.playlist): return
@@ -476,10 +478,14 @@ class SodaPlayer(QMainWindow):
         
         lines = []
         try:
-            with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
+            with open(path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
         except:
-            try: with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
-            except: return
+            try:
+                with open(path, 'r', encoding='gbk') as f:
+                    lines = f.readlines()
+            except:
+                return
 
         import re
         p = re.compile(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)')
@@ -494,8 +500,10 @@ class SodaPlayer(QMainWindow):
                     self.panel_lyric.addItem(txt.strip())
 
     def toggle_play(self):
-        if self.player.state() == QMediaPlayer.PlayingState: self.player.pause()
-        elif self.playlist: self.player.play()
+        if self.player.state() == QMediaPlayer.PlayingState:
+            self.player.pause()
+        elif self.playlist:
+            self.player.play()
     
     def toggle_mode(self):
         self.mode = (self.mode + 1) % 3
@@ -504,32 +512,42 @@ class SodaPlayer(QMainWindow):
 
     def toggle_rate(self):
         rates = [1.0, 1.25, 1.5, 2.0, 0.5]
-        try: curr_idx = rates.index(self.rate)
-        except: curr_idx = 0
+        try:
+            curr_idx = rates.index(self.rate)
+        except:
+            curr_idx = 0
         self.rate = rates[(curr_idx + 1) % len(rates)]
         self.player.setPlaybackRate(self.rate)
         self.btn_rate.setText(f"{self.rate}x")
 
     def play_next(self):
         if not self.playlist: return
-        if self.mode == 2: nxt = random.randint(0, len(self.playlist)-1)
-        else: nxt = (self.current_index + 1) % len(self.playlist)
+        if self.mode == 2:
+            nxt = random.randint(0, len(self.playlist)-1)
+        else:
+            nxt = (self.current_index + 1) % len(self.playlist)
         self.play_index(nxt)
 
     def play_prev(self):
         if not self.playlist: return
-        if self.mode == 2: prev = random.randint(0, len(self.playlist)-1)
-        else: prev = (self.current_index - 1) % len(self.playlist)
+        if self.mode == 2:
+            prev = random.randint(0, len(self.playlist)-1)
+        else:
+            prev = (self.current_index - 1) % len(self.playlist)
         self.play_index(prev)
 
     def on_state_changed(self, state):
-        if state == QMediaPlayer.PlayingState: self.btn_play.setText("⏸")
-        else: self.btn_play.setText("▶")
+        if state == QMediaPlayer.PlayingState:
+            self.btn_play.setText("⏸")
+        else:
+            self.btn_play.setText("▶")
 
     def on_media_status_changed(self, status):
         if status == QMediaPlayer.EndOfMedia:
-            if self.mode == 1: self.player.play()
-            else: self.play_next()
+            if self.mode == 1:
+                self.player.play()
+            else:
+                self.play_next()
 
     def handle_player_error(self):
         self.play_next()
@@ -539,7 +557,8 @@ class SodaPlayer(QMainWindow):
         self.lbl_total_time.setText(self.fmt_time(dur))
 
     def on_position_changed(self, pos):
-        if not self.is_slider_pressed: self.slider.setValue(pos)
+        if not self.is_slider_pressed:
+            self.slider.setValue(pos)
         self.lbl_curr_time.setText(self.fmt_time(pos))
         sec = pos / 1000 + self.offset
         if self.lyrics:
@@ -571,12 +590,16 @@ class SodaPlayer(QMainWindow):
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
             try:
-                with open(CONFIG_FILE,'r') as f:
-                    self.music_folder = json.load(f).get("folder","")
+                with open(CONFIG_FILE, 'r') as f:
+                    data = json.load(f)
+                    self.music_folder = data.get("folder", "")
                     if self.music_folder: self.scan_music()
             except: pass
     def save_config(self):
-        with open(CONFIG_FILE,'w') as f: json.dump({"folder":self.music_folder},f)
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump({"folder": self.music_folder}, f)
+        except: pass
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
