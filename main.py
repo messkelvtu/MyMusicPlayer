@@ -4,20 +4,43 @@ import json
 import shutil
 import random
 import threading
-import traceback
-import datetime
 
-# --- 日志记录功能 (用于诊断闪退) ---
-def log(msg):
-    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-    log_msg = f"[{timestamp}] {msg}"
-    print(log_msg)
-    try:
-        with open("debug_log.txt", "a", encoding="utf-8") as f:
-            f.write(log_msg + "\n")
-    except: pass
+# ==========================================
+# 1. 核心修复：Qt 插件寻路
+# ==========================================
+def init_env_setup():
+    # 设置 Qt 插件路径
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
+        # 寻找 plugins
+        possible_paths = [
+            os.path.join(base_path, 'PyQt5', 'Qt5', 'plugins'),
+            os.path.join(base_path, 'PyQt5', 'Qt', 'plugins'),
+            os.path.join(base_path, 'PyQt5', 'plugins'),
+        ]
+        for p in possible_paths:
+            if os.path.exists(p):
+                os.environ['QT_PLUGIN_PATH'] = p
+                from PyQt5.QtCore import QCoreApplication
+                QCoreApplication.addLibraryPath(p)
+                break
 
-log("=== 程序启动 ===")
+init_env_setup()
+
+# ==========================================
+# 2. 核心修复：寻找内置 FFmpeg
+# ==========================================
+def get_ffmpeg_path():
+    if getattr(sys, 'frozen', False):
+        # 打包模式：在临时目录找
+        return os.path.join(sys._MEIPASS, 'ffmpeg.exe')
+    else:
+        # 本地运行模式：在当前目录找，或者假设系统有
+        if os.path.exists("ffmpeg.exe"):
+            return os.path.abspath("ffmpeg.exe")
+        return "ffmpeg" # 尝试系统环境变量
+
+FFMPEG_BIN = get_ffmpeg_path()
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QListWidget, 
@@ -32,7 +55,6 @@ try:
     import yt_dlp
 except ImportError:
     yt_dlp = None
-    log("未找到 yt_dlp 库")
 
 CONFIG_FILE = "config.json"
 
@@ -59,7 +81,6 @@ QSlider::handle:horizontal { background: #1ECD97; border: 1px solid #1ECD97; wid
 QSlider::sub-page:horizontal { background: #1ECD97; border-radius: 3px; }
 """
 
-# --- B站下载线程 ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
@@ -72,45 +93,49 @@ class BilibiliDownloader(QThread):
 
     def run(self):
         if not yt_dlp:
-            self.progress_signal.emit("错误：缺少 yt-dlp 组件")
+            self.progress_signal.emit("错误：缺少 yt-dlp")
             return
 
         def progress_hook(d):
             if d['status'] == 'downloading':
                 p = d.get('_percent_str', '')
                 filename = os.path.basename(d.get('filename', '未知'))
-                if len(filename) > 20: filename = filename[:20] + "..."
+                if len(filename) > 25: filename = filename[:25] + "..."
                 self.progress_signal.emit(f"⬇️ {p} : {filename}")
             elif d['status'] == 'finished':
-                self.progress_signal.emit("✅ 下载完成")
+                self.progress_signal.emit("♻️ 正在转码 MP3...")
 
         is_playlist = True if self.mode == 1 else False
 
         ydl_opts = {
-            # 强制 m4a，兼容性最好，不需要 ffmpeg 也能播放
-            'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
             'noplaylist': not is_playlist,
             'ignoreerrors': True,
             'progress_hooks': [progress_hook],
             'quiet': True,
             'nocheckcertificate': True,
+            
+            # --- 关键：指定内置 FFmpeg 路径 ---
+            'ffmpeg_location': FFMPEG_BIN,
+            
+            # --- 关键：强制转码 MP3 ---
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
         }
 
         try:
-            log(f"开始下载: {self.url}, 模式: {'合集' if is_playlist else '单曲'}")
             self.progress_signal.emit("🔍 正在解析...")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
             self.progress_signal.emit("🎉 任务完成")
-            log("下载任务结束")
             self.finished_signal.emit()
         except Exception as e:
-            err_msg = str(e)
-            log(f"下载出错: {err_msg}")
-            self.progress_signal.emit(f"❌ 错误: {err_msg[:30]}...")
+            self.progress_signal.emit(f"❌ 错误: {str(e)}")
 
-# --- 桌面歌词 ---
 class DesktopLyricWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -171,11 +196,10 @@ class DesktopLyricWindow(QWidget):
             self.current_font = f
             self.update_styles()
 
-# --- 主程序 ---
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (防闪退稳定版)")
+        self.setWindowTitle("汽水音乐 (MP3转码终极版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -188,19 +212,13 @@ class SodaPlayer(QMainWindow):
         self.rate = 1.0 
         self.is_slider_pressed = False 
 
-        # 初始化播放器
-        try:
-            self.player = QMediaPlayer()
-            self.player.setVolume(100)
-            self.player.positionChanged.connect(self.on_position_changed)
-            self.player.durationChanged.connect(self.on_duration_changed)
-            self.player.stateChanged.connect(self.on_state_changed)
-            self.player.mediaStatusChanged.connect(self.on_media_status_changed)
-            self.player.error.connect(self.handle_player_error)
-            log("播放器组件初始化成功")
-        except Exception as e:
-            log(f"播放器初始化失败: {e}")
-            QMessageBox.critical(self, "致命错误", "播放器组件无法加载，请检查系统环境。")
+        self.player = QMediaPlayer()
+        self.player.setVolume(100)
+        self.player.positionChanged.connect(self.on_position_changed)
+        self.player.durationChanged.connect(self.on_duration_changed)
+        self.player.stateChanged.connect(self.on_state_changed)
+        self.player.mediaStatusChanged.connect(self.on_media_status_changed)
+        self.player.error.connect(self.handle_player_error)
 
         self.desktop_lyric = DesktopLyricWindow()
         self.desktop_lyric.show()
@@ -435,28 +453,20 @@ class SodaPlayer(QMainWindow):
     def play_selected(self, item):
         self.play_index(self.list_widget.row(item))
 
-    # --- 【防闪退核心】增加 try-except ---
     def play_index(self, idx):
         if not self.playlist or idx < 0 or idx >= len(self.playlist): return
+        self.current_index = idx
+        song = self.playlist[idx]
         
-        try:
-            self.current_index = idx
-            song = self.playlist[idx]
-            
-            # 打印日志，如果闪退可以知道卡在哪
-            log(f"尝试播放: {song['name']}")
-            
-            url = QUrl.fromLocalFile(song["path"])
-            self.player.setMedia(QMediaContent(url))
-            self.player.setPlaybackRate(self.rate)
-            self.player.play()
-            
-            self.btn_play.setText("⏸")
-            self.list_widget.setCurrentRow(idx)
-            self.parse_lrc(os.path.splitext(song["path"])[0] + ".lrc")
-        except Exception as e:
-            log(f"播放发生严重错误: {traceback.format_exc()}")
-            QMessageBox.warning(self, "错误", "播放时发生严重错误，已记录日志。")
+        # 绝对路径，防止编码问题
+        url = QUrl.fromLocalFile(os.path.abspath(song["path"]))
+        self.player.setMedia(QMediaContent(url))
+        self.player.setPlaybackRate(self.rate)
+        self.player.play()
+        
+        self.btn_play.setText("⏸")
+        self.list_widget.setCurrentRow(idx)
+        self.parse_lrc(os.path.splitext(song["path"])[0] + ".lrc")
 
     def parse_lrc(self, path):
         self.lyrics = []
@@ -541,11 +551,9 @@ class SodaPlayer(QMainWindow):
                 self.play_next()
 
     def handle_player_error(self):
-        # 错误处理逻辑优化
-        log(f"QMediaPlayer Error: {self.player.errorString()}")
         self.btn_play.setText("▶")
-        # 如果是 m4a 且报错，基本是解码器问题
-        QMessageBox.warning(self, "播放失败", f"错误详情: {self.player.errorString()}\n\n如果文件是 B站下载的，说明你的系统缺少解码器。\n建议安装 K-Lite Codec Pack。")
+        err_msg = self.player.errorString()
+        QMessageBox.warning(self, "播放错误", f"无法播放该文件：{err_msg}\n\n如果是MP3也无法播放，请检查电脑声卡驱动。")
 
     def on_duration_changed(self, dur):
         self.slider.setRange(0, dur)
@@ -597,8 +605,6 @@ class SodaPlayer(QMainWindow):
         except: pass
 
 if __name__ == "__main__":
-    # 异常捕获，防止闪退无提示
-    sys.excepthook = lambda cls, exception, trace: log(f"未捕获异常: {exception}")
     app = QApplication(sys.argv)
     f = QFont("SimSun"); f.setPixelSize(14)
     app.setFont(f)
