@@ -5,16 +5,38 @@ import shutil
 import random
 import threading
 
-# --- 【核心修复】必须放在 PyQt5 导入之前 ---
-# 强制告诉 EXE 去哪里找音频解码器插件
-if getattr(sys, 'frozen', False):
-    # 如果是打包后的 EXE 环境
-    base_path = sys._MEIPASS
-    # 设置 Qt 插件路径，指向临时解压目录
-    os.environ['QT_PLUGIN_PATH'] = os.path.join(base_path, 'PyQt5', 'Qt5', 'plugins')
-    # 有些版本路径稍有不同，双重保险
-    if not os.path.exists(os.path.join(base_path, 'PyQt5', 'Qt5', 'plugins')):
-        os.environ['QT_PLUGIN_PATH'] = os.path.join(base_path, 'PyQt5', 'Qt', 'plugins')
+# ==========================================
+# 核心修复：智能寻找 PyQt5 解码器插件
+# ==========================================
+def fix_qt_plugin_path():
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
+        print(f"[Debug] Running in frozen mode. Base: {base_path}")
+        
+        # 暴力搜索 wmfengine.dll (Windows音频核心)
+        target_plugin_path = None
+        for root, dirs, files in os.walk(base_path):
+            if "mediaservice" in dirs:
+                target_plugin_path = root
+                break
+        
+        if target_plugin_path:
+            os.environ['QT_PLUGIN_PATH'] = target_plugin_path
+            print(f"[Debug] Plugin path set to: {target_plugin_path}")
+        else:
+            # 备用方案：硬编码常见路径
+            candidates = [
+                os.path.join(base_path, 'PyQt5', 'Qt5', 'plugins'),
+                os.path.join(base_path, 'PyQt5', 'Qt', 'plugins'),
+                os.path.join(base_path, 'qt5_plugins'),
+            ]
+            for p in candidates:
+                if os.path.exists(p):
+                    os.environ['QT_PLUGIN_PATH'] = p
+                    break
+
+fix_qt_plugin_path()
+# ==========================================
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QListWidget, 
@@ -22,10 +44,9 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QGraphicsDropShadowEffect, QInputDialog, QMessageBox, 
                              QFontDialog, QMenu, QAction, QSlider)
 from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QSize
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtGui import QFont, QColor, QDesktopServices
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
-# 引入 yt_dlp
 try:
     import yt_dlp
 except ImportError:
@@ -76,7 +97,6 @@ QSlider::sub-page:horizontal {
 }
 """
 
-# --- B站下载线程 ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
@@ -85,7 +105,7 @@ class BilibiliDownloader(QThread):
         super().__init__()
         self.url = url
         self.folder = folder
-        self.mode = mode # 0:单曲, 1:合集
+        self.mode = mode 
 
     def run(self):
         if not yt_dlp:
@@ -104,7 +124,6 @@ class BilibiliDownloader(QThread):
         is_playlist = True if self.mode == 1 else False
 
         ydl_opts = {
-            # 下载 m4a (AAC编码)，这是 Windows Media Foundation 原生支持最好的格式
             'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
             'noplaylist': not is_playlist,
@@ -115,7 +134,7 @@ class BilibiliDownloader(QThread):
         }
 
         try:
-            self.progress_signal.emit("🔍 解析链接中...")
+            self.progress_signal.emit("🔍 正在解析...")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
             self.progress_signal.emit("🎉 任务完成")
@@ -123,7 +142,6 @@ class BilibiliDownloader(QThread):
         except Exception as e:
             self.progress_signal.emit(f"❌ 错误: {str(e)}")
 
-# --- 桌面歌词 ---
 class DesktopLyricWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -184,11 +202,10 @@ class DesktopLyricWindow(QWidget):
             self.current_font = f
             self.update_styles()
 
-# --- 主程序 ---
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (播放修复版)")
+        self.setWindowTitle("汽水音乐 (终极稳定版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -197,7 +214,6 @@ class SodaPlayer(QMainWindow):
         self.lyrics = []
         self.current_index = -1
         self.offset = 0
-        
         self.mode = 0 
         self.rate = 1.0 
         self.is_slider_pressed = False 
@@ -538,9 +554,22 @@ class SodaPlayer(QMainWindow):
                 self.play_next()
 
     def handle_player_error(self):
-        err_msg = self.player.errorString()
-        QMessageBox.warning(self, "播放错误", f"无法播放：{err_msg}\n\n提示：代码顶部已添加路径修复，如果还报错，说明系统缺少 m4a 解码器（通常安装 K-Lite Codec Pack 可解决）。")
         self.btn_play.setText("▶")
+        # --- 核心：增加系统播放器保底 ---
+        err_msg = self.player.errorString()
+        
+        msg = QMessageBox(self)
+        msg.setWindowTitle("播放失败")
+        msg.setText(f"无法使用内置播放器：{err_msg}")
+        msg.setInformativeText("是否尝试调用系统默认播放器播放？")
+        btn_sys = msg.addButton("调用系统播放器", QMessageBox.ActionRole)
+        msg.addButton("取消", QMessageBox.RejectRole)
+        msg.exec_()
+        
+        if msg.clickedButton() == btn_sys:
+            if self.current_index >= 0:
+                song_path = self.playlist[self.current_index]["path"]
+                QDesktopServices.openUrl(QUrl.fromLocalFile(song_path))
 
     def on_duration_changed(self, dur):
         self.slider.setRange(0, dur)
