@@ -22,10 +22,17 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller PyQt5 PyQt5-sip yt-dlp
 
-    - name: Build EXE
-      # 使用 --collect-all 确保 Qt 多媒体组件被正确打包
+    # --- 【核心步骤】下载 FFmpeg ---
+    - name: Download FFmpeg
+      shell: pwsh
       run: |
-        pyinstaller --noconsole --onefile --collect-all PyQt5 --collect-all yt_dlp --name "SodaMusicPlayer" main.py
+        curl -L -o ffmpeg.exe https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/ffmpeg-win32-x64.exe
+
+    # --- 打包 ---
+    # --add-binary "ffmpeg.exe;." : 这句话把刚才下载的 ffmpeg 塞进 EXE
+    - name: Build EXE
+      run: |
+        pyinstaller --noconsole --onefile --collect-all PyQt5 --collect-all yt_dlp --add-binary "ffmpeg.exe;." --name "SodaMusicPlayer" main.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
