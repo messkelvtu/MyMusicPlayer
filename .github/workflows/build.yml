@@ -24,8 +24,8 @@ jobs:
 
     - name: Build EXE
       # 关键修改：
-      # --collect-all PyQt5.QtMultimedia: 强制把音频插件打包进去
-      # --collect-all yt_dlp: 确保下载器正常
+      # --collect-all PyQt5.QtMultimedia: 强制打包音频解码插件(解决无法播放)
+      # --collect-all yt_dlp: 确保下载功能正常
       run: |
         pyinstaller --noconsole --onefile --collect-all PyQt5.QtMultimedia --collect-all yt_dlp --name "SodaMusicPlayer" main.py
 
