@@ -14,7 +14,7 @@ from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QSize, QCoreApplication,
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
-# --- 核心修复：强制使用 Windows 原生解码器 (必须放在最前面) ---
+# --- 核心配置：强制使用 Windows 原生解码器 (解决播放失败) ---
 os.environ["QT_MULTIMEDIA_PREFERRED_PLUGINS"] = "windowsmediafoundation"
 
 try:
@@ -67,23 +67,24 @@ QSlider::sub-page:horizontal {
 }
 """
 
-# --- 工具函数：去除非法字符 ---
+# --- 工具函数：文件名净化 ---
 def sanitize_filename(name):
-    # 替换 Windows 文件名中的非法字符
+    # 移除文件名中的非法字符
     return re.sub(r'[\\/*?:"<>|]', "", name).strip()
 
-# --- 自定义下载选项弹窗 ---
+# --- 下载模式选择弹窗 ---
 class DownloadDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, current_p=1):
         super().__init__(parent)
         self.setWindowTitle("下载选项")
-        self.resize(300, 150)
+        self.resize(350, 180)
         layout = QVBoxLayout(self)
         
-        layout.addWidget(QLabel("检测到链接，请选择下载模式："))
+        layout.addWidget(QLabel(f"检测到当前视频是第 {current_p} 集/首"))
+        layout.addWidget(QLabel("请选择下载模式："))
         
-        self.rb_single = QRadioButton("仅下载当前视频/歌曲")
-        self.rb_list = QRadioButton("下载合集/列表 (自动识别 P 数)")
+        self.rb_single = QRadioButton(f"仅下载当前这 1 首 (P{current_p})")
+        self.rb_list = QRadioButton(f"下载从此开始的全部 (P{current_p} - 结尾)")
         self.rb_single.setChecked(True)
         
         layout.addWidget(self.rb_single)
@@ -102,17 +103,18 @@ class DownloadDialog(QDialog):
     def get_mode(self):
         return "playlist" if self.rb_list.isChecked() else "single"
 
-# --- B站下载线程 ---
+# --- B站下载线程 (智能分P版) ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
     error_signal = pyqtSignal(str)
 
-    def __init__(self, url, folder, mode="single"):
+    def __init__(self, url, folder, mode="single", start_p=1):
         super().__init__()
         self.url = url
         self.folder = folder
-        self.mode = mode 
+        self.mode = mode
+        self.start_p = start_p
 
     def run(self):
         if not yt_dlp:
@@ -122,51 +124,51 @@ class BilibiliDownloader(QThread):
         def progress_hook(d):
             if d['status'] == 'downloading':
                 p = d.get('_percent_str', '0%')
+                # 智能截断文件名
                 raw_name = d.get('filename', '未知')
                 filename = os.path.basename(raw_name)
-                if len(filename) > 25: 
-                    filename = filename[:25] + "..."
+                if len(filename) > 25: filename = filename[:25] + "..."
                 self.progress_signal.emit(f"⬇️ {p} : {filename}")
             elif d['status'] == 'finished':
-                self.progress_signal.emit("✅ 下载完成，准备下一个...")
+                self.progress_signal.emit("✅ 当前文件下载完成...")
 
-        # 智能识别分P
-        start_index = 1
-        match = re.search(r'[?&]p=(\d+)', self.url)
-        if match:
-            start_index = int(match.group(1))
-        
-        playlist_range = f"{start_index}-{start_index + 99}" 
+        # 计算下载范围字符串
+        if self.mode == 'single':
+            # 只下载当前P：例如 "2"
+            items_range = str(self.start_p)
+        else:
+            # 从当前P到最后：例如 "2-" (yt-dlp 会自动检测合集总数并停止)
+            items_range = f"{self.start_p}-"
 
         ydl_opts = {
-            # 强制 m4a/mp4，兼容性最好
+            # 强制 MP4/M4A (Windows 兼容性最佳)
             'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best', 
-            'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
+            # 文件名模板：建议加上序号，方便排序
+            'outtmpl': os.path.join(self.folder, '%(playlist_index)s - %(title)s.%(ext)s'),
             
-            'noplaylist': True if self.mode == 'single' else False,
+            # 模式设置
+            'noplaylist': False, # 必须开启列表支持才能识别 range
+            'playlist_items': items_range, # 核心：传入 "2-" 或 "2"
             
             'ignoreerrors': True,
             'progress_hooks': [progress_hook],
             'quiet': True,
             'nocheckcertificate': True,
-            'restrictfilenames': False, # 保留中文文件名
+            'restrictfilenames': False, # 保留中文
         }
 
-        if self.mode == 'playlist':
-            ydl_opts['playlist_items'] = playlist_range
-            self.progress_signal.emit(f"模式：合集下载 (P{start_index} - P{start_index+99})")
-        else:
-            self.progress_signal.emit("模式：单曲下载")
-
+        mode_str = f"单曲 P{self.start_p}" if self.mode == 'single' else f"列表 P{self.start_p} 到 结尾"
+        
         try:
+            self.progress_signal.emit(f"🔍 正在解析 ({mode_str})...")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
             
-            self.progress_signal.emit("🎉 任务全部结束")
+            self.progress_signal.emit("🎉 全部任务已结束")
             self.finished_signal.emit()
             
         except Exception as e:
-            self.error_signal.emit(f"❌ 下载中断: {str(e)}")
+            self.error_signal.emit(f"❌ 下载出错: {str(e)}")
 
 # --- 桌面歌词 ---
 class DesktopLyricWindow(QWidget):
@@ -233,7 +235,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (智能合集版)")
+        self.setWindowTitle("汽水音乐 (合集增强版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -443,7 +445,7 @@ class SodaPlayer(QMainWindow):
             new_lrc_path = os.path.join(new_folder_path, song_name + ".lrc")
             shutil.copy(lrc_file, new_lrc_path)
             
-            QMessageBox.information(self, "成功", f"整理完成")
+            QMessageBox.information(self, "成功", f"已整理到文件夹:\n{new_folder_name}")
             self.scan_music() 
             
         except Exception as e:
@@ -464,11 +466,18 @@ class SodaPlayer(QMainWindow):
         if not self.music_folder: return QMessageBox.warning(self, "提示", "请先设置文件夹")
         u, ok = QInputDialog.getText(self, "B站下载", "粘贴链接 (支持BV号/合集):")
         if ok and u:
-            dialog = DownloadDialog(self)
+            # 提取 P 参数
+            current_p = 1
+            match = re.search(r'[?&]p=(\d+)', u)
+            if match:
+                current_p = int(match.group(1))
+
+            # 弹窗选择模式
+            dialog = DownloadDialog(self, current_p)
             if dialog.exec_() == QDialog.Accepted:
                 mode = dialog.get_mode()
                 self.lbl_curr_time.setText("启动下载...")
-                self.dl = BilibiliDownloader(u, self.music_folder, mode)
+                self.dl = BilibiliDownloader(u, self.music_folder, mode, current_p)
                 self.dl.progress_signal.connect(lambda m: self.lbl_curr_time.setText(m))
                 self.dl.finished_signal.connect(self.on_dl_finish)
                 self.dl.error_signal.connect(self.on_dl_error)
@@ -527,14 +536,11 @@ class SodaPlayer(QMainWindow):
             return
         
         lines = []
-        # --- 彻底修复语法：全部换行 ---
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+            with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
         except Exception:
             try:
-                with open(path, 'r', encoding='gbk') as f:
-                    lines = f.readlines()
+                with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
             except Exception:
                 return
 
