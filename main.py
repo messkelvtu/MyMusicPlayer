@@ -107,7 +107,7 @@ class LyricListSearchWorker(QThread):
             print(f"Search error: {e}")
             self.search_finished.emit([])
 
-# --- 2. 手动歌词搜索弹窗 (使用上面的Worker) ---
+# --- 2. 手动歌词搜索弹窗 ---
 class LyricSearchDialog(QDialog):
     def __init__(self, song_name, parent=None):
         super().__init__(parent)
@@ -140,7 +140,6 @@ class LyricSearchDialog(QDialog):
         self.status_lbl.setText("正在搜索...")
         self.table.setRowCount(0)
         
-        # 使用 QThread 防止界面卡死
         self.worker = LyricListSearchWorker(key)
         self.worker.search_finished.connect(self.on_search_done)
         self.worker.start()
@@ -182,7 +181,7 @@ class LyricDownloader(QThread):
                 self.finished_signal.emit(lrc)
         except: pass
 
-# --- 批量重命名弹窗 ---
+# --- 3. 批量重命名弹窗 ---
 class BatchRenameDialog(QDialog):
     def __init__(self, playlist, parent=None):
         super().__init__(parent)
@@ -195,7 +194,7 @@ class BatchRenameDialog(QDialog):
         
         self.tabs = QTabWidget()
         
-        # Tab 1
+        # Tab 1: 替换
         tab_replace = QWidget()
         l1 = QVBoxLayout(tab_replace)
         h1 = QHBoxLayout()
@@ -206,7 +205,7 @@ class BatchRenameDialog(QDialog):
         l1.addLayout(h1); l1.addStretch()
         self.tabs.addTab(tab_replace, "文本替换")
         
-        # Tab 2
+        # Tab 2: 裁剪
         tab_trim = QWidget()
         l2 = QVBoxLayout(tab_trim)
         h2 = QHBoxLayout()
@@ -260,7 +259,7 @@ class BatchRenameDialog(QDialog):
         if idx == 0: return "replace", (self.input_find.text(), self.input_replace.text()), self.selected_indices
         else: return "trim", (self.spin_head.value(), self.spin_tail.value()), self.selected_indices
 
-# --- 桌面歌词 ---
+# --- 4. 桌面歌词 (增强交互) ---
 class DesktopLyricWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -293,12 +292,14 @@ class DesktopLyricWindow(QWidget):
             effect = QGraphicsDropShadowEffect()
             effect.setBlurRadius(10); effect.setColor(shadow_color); effect.setOffset(1, 1)
             lbl.setGraphicsEffect(effect)
+            
             f = QFont(self.current_font)
             color_css = self.font_color.name()
-            if i == 1:
+            
+            if i == 1: # 当前句
                 f.setPointSize(base_size)
                 lbl.setStyleSheet(f"color: {color_css};")
-            else:
+            else: # 上下句
                 f.setPointSize(int(base_size * 0.6))
                 r,g,b = self.font_color.red(), self.font_color.green(), self.font_color.blue()
                 lbl.setStyleSheet(f"color: rgba({r}, {g}, {b}, 150);")
@@ -310,10 +311,13 @@ class DesktopLyricWindow(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and not self.locked:
             self.drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-        elif event.button() == Qt.RightButton: self.show_menu(event.globalPos())
+        elif event.button() == Qt.RightButton:
+            self.show_menu(event.globalPos())
+
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.LeftButton and not self.locked:
             self.move(event.globalPos() - self.drag_pos)
+
     def wheelEvent(self, event):
         d = event.angleDelta().y()
         s = self.current_font.pointSize()
@@ -421,7 +425,7 @@ class DownloadDialog(QDialog):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (完美版V5)")
+        self.setWindowTitle("汽水音乐 (完美交互版)")
         self.resize(1100, 750)
         self.setStyleSheet(STYLESHEET)
 
@@ -553,7 +557,7 @@ class SodaPlayer(QMainWindow):
             if os.path.isdir(full_path):
                 files = [x for x in os.listdir(full_path) if x.lower().endswith(exts)]
                 if len(files) <= 1:
-                    # 过滤单曲文件夹 (假设文件夹名包含歌曲名)
+                    # 过滤单曲文件夹
                     if len(files) == 1:
                         song_base = os.path.splitext(files[0])[0]
                         if item in song_base or song_base in item: continue
@@ -638,7 +642,7 @@ class SodaPlayer(QMainWindow):
         target_path = self.music_folder if not target_name else os.path.join(self.music_folder, target_name)
         if not os.path.exists(target_path): os.makedirs(target_path)
         
-        # 先收集数据，防止索引错乱
+        # 先收集数据
         songs_to_move = []
         for item in items:
             idx = self.list_widget.row(item)
@@ -668,7 +672,6 @@ class SodaPlayer(QMainWindow):
         if dialog.exec_() == QDialog.Accepted:
             mode, params, indices = dialog.get_data()
             count = 0
-            # 收集要修改的文件
             targets = []
             for i in indices:
                 if i < len(self.playlist): targets.append(self.playlist[i])
@@ -819,7 +822,6 @@ class SodaPlayer(QMainWindow):
         except: pass
     def on_auto_lrc(self, results):
         if results:
-            # 自动下载第一个
             target_id = results[0]['id']
             lrc_path = os.path.splitext(self.playlist[self.current_index]["path"])[0] + ".lrc"
             self.auto_dl = LyricDownloader(target_id, lrc_path)
@@ -883,6 +885,12 @@ class SodaPlayer(QMainWindow):
         if s==QMediaPlayer.EndOfMedia: 
             if self.mode==1: self.player.play() 
             else: self.play_next()
+    
+    # --- 补充丢失的错误处理函数 ---
+    def handle_player_error(self):
+        print(f"Error: {self.player.errorString()}")
+        QTimer.singleShot(1000, self.play_next)
+
     def on_position_changed(self, pos):
         if not self.is_slider_pressed: self.slider.setValue(pos)
         self.lbl_curr_time.setText(self.fmt_time(pos))
