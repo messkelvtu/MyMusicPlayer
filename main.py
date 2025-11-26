@@ -1144,10 +1144,14 @@ class SodaPlayer(QMainWindow):
                     self.saved_offsets=json.load(f)
             except:pass
         if os.path.exists(METADATA_FILE):
-            try: with open(METADATA_FILE,'r') as f: self.metadata=json.load(f)
+            try: 
+                with open(METADATA_FILE,'r') as f: 
+                    self.metadata=json.load(f)
             except:pass
         if os.path.exists(HISTORY_FILE):
-            try: with open(HISTORY_FILE,'r') as f: self.history=json.load(f)
+            try: 
+                with open(HISTORY_FILE,'r') as f: 
+                    self.history=json.load(f)
             except:pass
 
     def save_config(self): 
@@ -1174,6 +1178,10 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     f = QFont("Microsoft YaHei", 10); app.setFont(f)
     w = SodaPlayer(); w.show(); sys.exit(app.exec_())
+
+
+
+
 
 
 
