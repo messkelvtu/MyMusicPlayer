@@ -77,9 +77,11 @@ QSlider::sub-page:horizontal { background: #1ECD97; border-radius: 3px; }
 """
 
 def sanitize_filename(name):
+    """清理文件名中的非法字符"""
     return re.sub(r'[\\/*?:"<>|]', "", name).strip()
 
 def ms_to_str(ms):
+    """毫秒转换为时间字符串"""
     s = ms // 1000
     return f"{s//60:02}:{s%60:02}"
 
@@ -153,7 +155,8 @@ class LyricSearchDialog(QDialog):
 
     def start_search(self):
         key = self.input_key.text()
-        if not key: return
+        if not key: 
+            return
         self.table.setRowCount(0)
         self.worker = LyricListSearchWorker(key)
         self.worker.search_finished.connect(self.on_search_done)
@@ -206,7 +209,8 @@ class LyricDownloader(QThread):
                 with open(self.path, 'w', encoding='utf-8') as f:
                     f.write(lrc)
                 self.finished_signal.emit(lrc)
-        except: pass
+        except Exception as e:
+            print(f"歌词下载失败: {e}")
 
 # --- 3. 批量信息编辑弹窗 ---
 class BatchInfoDialog(QDialog):
@@ -481,7 +485,7 @@ class DownloadDialog(QDialog):
 # --- B站下载线程 ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
-    finished_signal = pyqtSignal(str, str)
+    finished_signal = pyqtSignal(str, str) 
     error_signal = pyqtSignal(str)
 
     def __init__(self, url, save_path, mode="single", start_p=1):
@@ -718,7 +722,8 @@ class SodaPlayer(QMainWindow):
 
     # --- 扫描逻辑 ---
     def full_scan(self):
-        if not self.music_folder or not os.path.exists(self.music_folder): return
+        if not self.music_folder or not os.path.exists(self.music_folder): 
+            return
         self.collections = []
         exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
         
@@ -729,13 +734,15 @@ class SodaPlayer(QMainWindow):
                 if len(files) <= 1:
                     if len(files) == 1:
                         song_base = os.path.splitext(files[0])[0]
-                        if item in song_base or song_base in item: continue
+                        if item in song_base or song_base in item: 
+                            continue
                 self.collections.append(item)
         
         self.nav_list.clear()
         self.nav_list.addItem("💿  所有歌曲") 
         self.nav_list.addItem("🕒  最近播放")
-        for c in self.collections: self.nav_list.addItem(f"📁  {c}")
+        for c in self.collections: 
+            self.nav_list.addItem(f"📁  {c}")
         
         if self.current_collection == "HISTORY":
             self.load_history_view()
@@ -772,11 +779,13 @@ class SodaPlayer(QMainWindow):
             target_dirs = [self.music_folder]
             for item in os.listdir(self.music_folder):
                 p = os.path.join(self.music_folder, item)
-                if os.path.isdir(p): target_dirs.append(p)
+                if os.path.isdir(p): 
+                    target_dirs.append(p)
 
         row = 0
         for d in target_dirs:
-            if not os.path.exists(d): continue
+            if not os.path.exists(d): 
+                continue
             for f in os.listdir(d):
                 if f.lower().endswith(exts):
                     full = os.path.abspath(os.path.join(d, f))
@@ -807,7 +816,8 @@ class SodaPlayer(QMainWindow):
 
     def show_context_menu(self, pos):
         items = self.table.selectedItems()
-        if not items: return
+        if not items: 
+            return
         
         selected_rows = sorted(list(set(i.row() for i in items)))
         
@@ -854,7 +864,8 @@ class SodaPlayer(QMainWindow):
     def batch_move(self, rows, target_name):
         self.player.setMedia(QMediaContent())
         target_path = self.music_folder if not target_name else os.path.join(self.music_folder, target_name)
-        if not os.path.exists(target_path): os.makedirs(target_path)
+        if not os.path.exists(target_path): 
+            os.makedirs(target_path)
         
         files_to_move = [self.playlist[i] for i in rows]
         count = 0
@@ -862,13 +873,15 @@ class SodaPlayer(QMainWindow):
             try:
                 src = song["path"]
                 dst = os.path.join(target_path, song["name"])
-                if src == dst: continue
+                if src == dst: 
+                    continue
                 shutil.move(src, dst)
                 lrc_src = os.path.splitext(src)[0] + ".lrc"
                 if os.path.exists(lrc_src):
                     shutil.move(lrc_src, os.path.join(target_path, os.path.basename(lrc_src)))
                 count += 1
-            except: pass
+            except Exception as e:
+                print(f"移动文件失败: {e}")
         
         self.full_scan()
         QMessageBox.information(self, "成功", f"已移动 {count} 首")
@@ -880,23 +893,29 @@ class SodaPlayer(QMainWindow):
             for i in rows:
                 if i < len(self.playlist):
                     fname = self.playlist[i]["name"]
-                    if artist: self.metadata.setdefault(fname, {})["artist"] = artist
-                    if album: self.metadata.setdefault(fname, {})["album"] = album
+                    if artist: 
+                        self.metadata.setdefault(fname, {})["artist"] = artist
+                    if album: 
+                        self.metadata.setdefault(fname, {})["album"] = album
             self.save_metadata()
             self.full_scan()
 
     def download_from_bilibili(self):
-        if not self.music_folder: return QMessageBox.warning(self, "提示", "请先设置根文件夹")
+        if not self.music_folder: 
+            QMessageBox.warning(self, "提示", "请先设置根文件夹")
+            return
         u, ok = QInputDialog.getText(self, "B站下载", "粘贴链接:")
         if ok and u:
-            p=1
-            m=re.search(r'[?&]p=(\d+)', u)
-            if m: p=int(m.group(1))
+            p = 1
+            m = re.search(r'[?&]p=(\d+)', u)
+            if m: 
+                p = int(m.group(1))
             dialog = DownloadDialog(self, p, self.collections)
             if dialog.exec_() == QDialog.Accepted:
                 mode, folder, artist, album = dialog.get_data()
                 path = self.music_folder
-                if folder: path = os.path.join(path, folder)
+                if folder: 
+                    path = os.path.join(path, folder)
                 
                 self.temp_dl_artist = artist
                 self.temp_dl_album = album
@@ -914,13 +933,16 @@ class SodaPlayer(QMainWindow):
                 if f not in self.metadata:
                     if self.temp_dl_artist or self.temp_dl_album:
                         self.metadata[f] = {}
-                        if self.temp_dl_artist: self.metadata[f]["artist"] = self.temp_dl_artist
-                        if self.temp_dl_album: self.metadata[f]["album"] = self.temp_dl_album
+                        if self.temp_dl_artist: 
+                            self.metadata[f]["artist"] = self.temp_dl_artist
+                        if self.temp_dl_album: 
+                            self.metadata[f]["album"] = self.temp_dl_album
         self.save_metadata()
         self.full_scan()
         self.lbl_collection_title.setText("下载完成")
 
-    def on_dl_error(self, m): QMessageBox.warning(self, "错", m)
+    def on_dl_error(self, m): 
+        QMessageBox.warning(self, "错误", m)
 
     def open_manual_search(self, idx):
         song = self.playlist[idx]
@@ -933,11 +955,13 @@ class SodaPlayer(QMainWindow):
             self.lrc_dl.start()
 
     def on_lrc_bound(self, content, idx):
-        if self.current_index == idx: self.parse_lrc_content(content)
+        if self.current_index == idx: 
+            self.parse_lrc_content(content)
         QMessageBox.information(self, "成功", "歌词已绑定")
 
     def open_batch_rename(self):
-        if not self.playlist: return
+        if not self.playlist: 
+            return
         self.player.setMedia(QMediaContent())
         d = BatchRenameDialog(self.playlist, self)
         if d.exec_() == QDialog.Accepted:
@@ -945,96 +969,129 @@ class SodaPlayer(QMainWindow):
             count = 0
             targets = [self.playlist[i] for i in idxs if i < len(self.playlist)]
             for s in targets:
-                old = s["path"]; base, ext = os.path.splitext(s["name"])
+                old = s["path"]
+                base, ext = os.path.splitext(s["name"])
                 new_base = base
-                if mode=="replace": 
-                    if p[0] in new_base: new_base = new_base.replace(p[0], p[1])
-                elif mode=="trim":
-                    if p[0]>0: new_base = new_base[p[0]:]
-                    if p[1]>0: new_base = new_base[:-p[1]]
-                nn = new_base.strip()+ext; np = os.path.join(os.path.dirname(old), nn)
-                if np!=old:
-                    try: os.rename(old, np); count+=1
-                    except: pass
+                if mode == "replace": 
+                    if p[0] in new_base: 
+                        new_base = new_base.replace(p[0], p[1])
+                elif mode == "trim":
+                    if p[0] > 0: 
+                        new_base = new_base[p[0]:]
+                    if p[1] > 0: 
+                        new_base = new_base[:-p[1]]
+                nn = new_base.strip() + ext
+                np = os.path.join(os.path.dirname(old), nn)
+                if np != old:
+                    try: 
+                        os.rename(old, np)
+                        count += 1
+                    except Exception as e:
+                        print(f"重命名失败: {e}")
             self.full_scan()
             QMessageBox.information(self, "完成", f"重命名 {count} 个")
 
     def rename_song(self, idx):
         self.player.setMedia(QMediaContent())
-        s = self.playlist[idx]; old=s["path"]
+        s = self.playlist[idx]
+        old = s["path"]
         n, ok = QInputDialog.getText(self, "重命名", "新名:", text=os.path.splitext(s["name"])[0])
         if ok and n:
-            np = os.path.join(os.path.dirname(old), sanitize_filename(n)+os.path.splitext(s["name"])[1])
-            try: os.rename(old, np); self.full_scan()
-            except Exception as e: print(e)
+            np = os.path.join(os.path.dirname(old), sanitize_filename(n) + os.path.splitext(s["name"])[1])
+            try: 
+                os.rename(old, np)
+                self.full_scan()
+            except Exception as e: 
+                print(f"重命名失败: {e}")
 
     def delete_songs(self, rows):
         if QMessageBox.Yes == QMessageBox.question(self, "确认", f"删除 {len(rows)} 首歌？"):
             self.player.setMedia(QMediaContent())
             for i in rows:
                 if i < len(self.playlist):
-                    try: os.remove(self.playlist[i]["path"])
-                    except: pass
+                    try: 
+                        os.remove(self.playlist[i]["path"])
+                    except Exception as e:
+                        print(f"删除文件失败: {e}")
             self.full_scan()
 
     def bind_lyrics(self, idx):
         self.player.setMedia(QMediaContent())
-        s = self.playlist[idx]; p=s["path"]; n=os.path.splitext(s["name"])[0]
+        s = self.playlist[idx]
+        p = s["path"]
+        n = os.path.splitext(s["name"])[0]
         f, _ = QFileDialog.getOpenFileName(self, "选词", "", "LRC (*.lrc)")
         if f:
             d = os.path.join(os.path.dirname(p), n)
             try:
-                if not os.path.exists(d): os.makedirs(d)
+                if not os.path.exists(d): 
+                    os.makedirs(d)
                 shutil.move(p, os.path.join(d, s["name"]))
-                shutil.copy(f, os.path.join(d, n+".lrc"))
-                self.full_scan(); QMessageBox.information(self,"ok","ok")
-            except:pass
+                shutil.copy(f, os.path.join(d, n + ".lrc"))
+                self.full_scan()
+                QMessageBox.information(self, "成功", "歌词绑定成功")
+            except Exception as e:
+                print(f"绑定歌词失败: {e}")
 
     def remove_lyric(self, idx):
         p = os.path.splitext(self.playlist[idx]["path"])[0] + ".lrc"
         if os.path.exists(p):
             os.remove(p)
-            if self.current_index == idx: self.parse_lrc_content("")
-            QMessageBox.information(self, "完成", "已删除")
+            if self.current_index == idx: 
+                self.parse_lrc_content("")
+            QMessageBox.information(self, "完成", "已删除歌词文件")
 
     def select_folder(self):
         f = QFileDialog.getExistingDirectory(self, "根目录")
-        if f: self.music_folder=f; self.full_scan(); self.save_config()
+        if f: 
+            self.music_folder = f
+            self.full_scan()
+            self.save_config()
 
     def create_collection(self):
-        if not self.music_folder: return
+        if not self.music_folder: 
+            return
         n, ok = QInputDialog.getText(self, "新建", "名称:")
         if ok and n:
             os.makedirs(os.path.join(self.music_folder, sanitize_filename(n)), exist_ok=True)
             self.full_scan()
 
-    def play_selected(self, item): self.play_index(item.row())
+    def play_selected(self, item):
+        """播放选中的歌曲"""
+        self.play_index(item.row())
+
     def play_index(self, idx):
-        if not self.playlist or idx >= len(self.playlist): return
+        if not self.playlist or idx >= len(self.playlist): 
+            return
         self.current_index = idx
         song = self.playlist[idx]
         
         if song not in self.history:
             self.history.insert(0, song)
-            if len(self.history) > 50: self.history.pop()
+            if len(self.history) > 50: 
+                self.history.pop()
             self.save_history()
             
         try:
             self.player.setMedia(QMediaContent(QUrl.fromLocalFile(song["path"])))
-            self.player.setPlaybackRate(self.rate); self.player.play()
+            self.player.setPlaybackRate(self.rate)
+            self.player.play()
             self.btn_play.setText("⏸")
             
             self.offset = self.saved_offsets.get(song["name"], 0.0)
             self.update_offset_lbl()
             
-            lrc = os.path.splitext(song["path"])[0]+".lrc"
-            if os.path.exists(lrc): self.parse_lrc_file(lrc)
+            lrc = os.path.splitext(song["path"])[0] + ".lrc"
+            if os.path.exists(lrc): 
+                self.parse_lrc_file(lrc)
             else:
-                self.panel_lyric.clear(); self.panel_lyric.addItem("搜索中...")
+                self.panel_lyric.clear()
+                self.panel_lyric.addItem("搜索中...")
                 self.searcher = LyricListSearchWorker(song["name"])
                 self.searcher.search_finished.connect(self.on_auto_lrc_result)
                 self.searcher.start()
-        except: pass
+        except Exception as e:
+            print(f"播放失败: {e}")
 
     def on_auto_lrc_result(self, results):
         if results and self.current_index >= 0:
@@ -1044,15 +1101,19 @@ class SodaPlayer(QMainWindow):
             self.adl.finished_signal.connect(self.parse_lrc_content)
             self.adl.start()
         else:
-            self.panel_lyric.clear(); self.panel_lyric.addItem("无歌词")
+            self.panel_lyric.clear()
+            self.panel_lyric.addItem("无歌词")
 
     def parse_lrc_file(self, path):
         try:
-            with open(path, 'r', encoding='utf-8') as f: self.parse_lrc_content(f.read())
-        except:
+            with open(path, 'r', encoding='utf-8') as f: 
+                self.parse_lrc_content(f.read())
+        except UnicodeDecodeError:
             try:
-                with open(path, 'r', encoding='gbk') as f: self.parse_lrc_content(f.read())
-            except: pass
+                with open(path, 'r', encoding='gbk') as f: 
+                    self.parse_lrc_content(f.read())
+            except Exception as e:
+                print(f"解析歌词文件失败: {e}")
 
     def parse_lrc_content(self, content):
         self.lyrics = []
@@ -1062,107 +1123,184 @@ class SodaPlayer(QMainWindow):
             m = p.search(l)
             if m:
                 mn, sc, ms, t = m.groups()
-                ms_v = int(ms)*10 if len(ms)==2 else int(ms)
-                tm = int(mn)*60 + int(sc) + ms_v/1000
+                ms_v = int(ms) * 10 if len(ms) == 2 else int(ms)
+                tm = int(mn) * 60 + int(sc) + ms_v / 1000
                 if t.strip():
                     self.lyrics.append({"t": tm, "txt": t.strip()})
                     self.panel_lyric.addItem(t.strip())
+
     def adjust_offset(self, v):
         self.offset += v
         self.update_offset_lbl()
         if self.current_index >= 0:
             self.saved_offsets[self.playlist[self.current_index]["name"]] = self.offset
             self.save_offsets()
+
     def update_offset_lbl(self):
         s = "+" if self.offset >= 0 else ""
         self.lbl_offset.setText(f"偏移: {s}{self.offset:.1f}s")
+
     def toggle_play(self):
-        if self.player.state() == QMediaPlayer.PlayingState: self.player.pause()
-        else: self.player.play()
+        if self.player.state() == QMediaPlayer.PlayingState: 
+            self.player.pause()
+        else: 
+            self.player.play()
+
     def toggle_mode(self):
-        self.mode = (self.mode + 1) % 3; modes = ["🔁", "🔂", "🔀"]; self.btn_mode.setText(modes[self.mode])
+        self.mode = (self.mode + 1) % 3
+        modes = ["🔁", "🔂", "🔀"]
+        self.btn_mode.setText(modes[self.mode])
+
     def toggle_rate(self):
-        rs=[1.0,1.25,1.5,2.0,0.5]; 
-        try: i=rs.index(self.rate)
-        except: i=0
-        self.rate=rs[(i+1)%5]; self.player.setPlaybackRate(self.rate); self.btn_rate.setText(f"{self.rate}x")
+        rs = [1.0, 1.25, 1.5, 2.0, 0.5]
+        try: 
+            i = rs.index(self.rate)
+        except ValueError: 
+            i = 0
+        self.rate = rs[(i + 1) % 5]
+        self.player.setPlaybackRate(self.rate)
+        self.btn_rate.setText(f"{self.rate}x")
+
     def play_next(self):
-        if not self.playlist: return
-        n = random.randint(0, len(self.playlist)-1) if self.mode==2 else (self.current_index+1)%len(self.playlist)
+        if not self.playlist: 
+            return
+        n = random.randint(0, len(self.playlist) - 1) if self.mode == 2 else (self.current_index + 1) % len(self.playlist)
         self.play_index(n)
+
     def play_prev(self):
-        if not self.playlist: return
-        p = random.randint(0, len(self.playlist)-1) if self.mode==2 else (self.current_index-1)%len(self.playlist)
+        if not self.playlist: 
+            return
+        p = random.randint(0, len(self.playlist) - 1) if self.mode == 2 else (self.current_index - 1) % len(self.playlist)
         self.play_index(p)
-    def on_state_changed(self, s): self.btn_play.setText("⏸" if s==QMediaPlayer.PlayingState else "▶")
+
+    def on_state_changed(self, s): 
+        self.btn_play.setText("⏸" if s == QMediaPlayer.PlayingState else "▶")
+
     def on_media_status_changed(self, s): 
-        if s==QMediaPlayer.EndOfMedia: 
-            if self.mode==1: self.player.play() 
-            else: self.play_next()
+        if s == QMediaPlayer.EndOfMedia: 
+            if self.mode == 1: 
+                self.player.play() 
+            else: 
+                self.play_next()
+
     def on_position_changed(self, pos):
-        if not self.is_slider_pressed: self.slider.setValue(pos)
+        if not self.is_slider_pressed: 
+            self.slider.setValue(pos)
         self.lbl_curr_time.setText(ms_to_str(pos))
-        sec = pos/1000 + self.offset
+        sec = pos / 1000 + self.offset
         if self.lyrics:
             idx = -1
             for i, l in enumerate(self.lyrics):
-                if sec >= l["t"]: idx = i
-                else: break
+                if sec >= l["t"]: 
+                    idx = i
+                else: 
+                    break
             if idx != -1:
                 self.panel_lyric.setCurrentRow(idx)
                 self.panel_lyric.scrollToItem(self.panel_lyric.item(idx), QAbstractItemView.PositionAtCenter)
-                p = self.lyrics[idx-1]["txt"] if idx>0 else ""
+                p = self.lyrics[idx - 1]["txt"] if idx > 0 else ""
                 c = self.lyrics[idx]["txt"]
-                n = self.lyrics[idx+1]["txt"] if idx<len(self.lyrics)-1 else ""
+                n = self.lyrics[idx + 1]["txt"] if idx < len(self.lyrics) - 1 else ""
                 self.desktop_lyric.set_lyrics(p, c, n)
-    def slider_pressed(self): self.is_slider_pressed = True
-    def slider_released(self): self.is_slider_pressed = False; self.player.setPosition(self.slider.value())
+
+    def slider_pressed(self): 
+        self.is_slider_pressed = True
+
+    def slider_released(self): 
+        self.is_slider_pressed = False
+        self.player.setPosition(self.slider.value())
+
     def slider_moved(self, v): 
-        if self.is_slider_pressed: self.lbl_curr_time.setText(ms_to_str(v))
+        if self.is_slider_pressed: 
+            self.lbl_curr_time.setText(ms_to_str(v))
+
     def on_duration_changed(self, d): 
-        self.slider.setRange(0, d); self.lbl_total_time.setText(ms_to_str(d))
+        self.slider.setRange(0, d)
+        self.lbl_total_time.setText(ms_to_str(d))
         if self.current_index >= 0:
             self.table.setItem(self.current_index, 3, QTableWidgetItem(ms_to_str(d)))
+
     def toggle_lyric(self): 
-        if self.desktop_lyric.isVisible(): self.desktop_lyric.hide()
-        else: self.desktop_lyric.show()
+        if self.desktop_lyric.isVisible(): 
+            self.desktop_lyric.hide()
+        else: 
+            self.desktop_lyric.show()
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
             try: 
-                with open(CONFIG_FILE,'r') as f: 
+                with open(CONFIG_FILE, 'r', encoding='utf-8') as f: 
                     d = json.load(f)
-                    self.music_folder=d.get("folder","")
+                    self.music_folder = d.get("folder", "")
+                    # 恢复桌面歌词位置
                     geo = d.get("lyric_geo")
-                    if geo: self.desktop_lyric.setGeometry(*geo)
+                    if geo: 
+                        self.desktop_lyric.setGeometry(*geo)
                     col = d.get("lyric_color")
-                    if col: self.desktop_lyric.font_color = QColor(*col); self.desktop_lyric.update_styles()
-                if self.music_folder: self.full_scan()
-            except:pass
+                    if col: 
+                        self.desktop_lyric.font_color = QColor(*col)
+                        self.desktop_lyric.update_styles()
+                if self.music_folder: 
+                    self.full_scan()
+            except Exception as e:
+                print(f"加载配置失败: {e}")
+        
         if os.path.exists(OFFSET_FILE):
-            try: with open(OFFSET_FILE,'r') as f: self.saved_offsets=json.load(f)
-            except:pass
+            try: 
+                with open(OFFSET_FILE, 'r', encoding='utf-8') as f: 
+                    self.saved_offsets = json.load(f)
+            except Exception as e:
+                print(f"加载偏移量失败: {e}")
+        
         if os.path.exists(METADATA_FILE):
-            try: with open(METADATA_FILE,'r') as f: self.metadata=json.load(f)
-            except:pass
+            try: 
+                with open(METADATA_FILE, 'r', encoding='utf-8') as f: 
+                    self.metadata = json.load(f)
+            except Exception as e:
+                print(f"加载元数据失败: {e}")
+        
         if os.path.exists(HISTORY_FILE):
-            try: with open(HISTORY_FILE,'r') as f: self.history=json.load(f)
-            except:pass
+            try: 
+                with open(HISTORY_FILE, 'r', encoding='utf-8') as f: 
+                    self.history = json.load(f)
+            except Exception as e:
+                print(f"加载历史记录失败: {e}")
 
-    def save_config(self): 
+    def save_config(self):
         data = {
             "folder": self.music_folder,
             "lyric_geo": self.desktop_lyric.geometry().getRect(),
             "lyric_color": self.desktop_lyric.font_color.getRgb()[:3]
         }
-        with open(CONFIG_FILE,'w') as f: json.dump(data,f)
-    def save_offsets(self): with open(OFFSET_FILE,'w') as f: json.dump(self.saved_offsets,f)
-    def save_metadata(self): with open(METADATA_FILE,'w') as f: json.dump(self.metadata,f)
-    def save_history(self): with open(HISTORY_FILE,'w') as f: json.dump(self.history,f)
+        try:
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as f: 
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存配置失败: {e}")
 
-    # --- 补充遗漏的错误处理 ---
+    def save_offsets(self):
+        try:
+            with open(OFFSET_FILE, 'w', encoding='utf-8') as f: 
+                json.dump(self.saved_offsets, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存偏移量失败: {e}")
+
+    def save_metadata(self):
+        try:
+            with open(METADATA_FILE, 'w', encoding='utf-8') as f: 
+                json.dump(self.metadata, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存元数据失败: {e}")
+
+    def save_history(self):
+        try:
+            with open(HISTORY_FILE, 'w', encoding='utf-8') as f: 
+                json.dump(self.history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存历史记录失败: {e}")
+
     def handle_player_error(self):
-        print(f"Error: {self.player.errorString()}")
+        print(f"播放器错误: {self.player.errorString()}")
         QTimer.singleShot(1000, self.play_next)
 
 if __name__ == "__main__":
@@ -1170,6 +1308,10 @@ if __name__ == "__main__":
         app_path = sys._MEIPASS
         os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = os.path.join(app_path, 'PyQt5', 'Qt', 'plugins')
         QCoreApplication.addLibraryPath(os.path.join(app_path, 'PyQt5', 'Qt', 'plugins'))
+    
     app = QApplication(sys.argv)
-    f = QFont("Microsoft YaHei", 10); app.setFont(f)
-    w = SodaPlayer(); w.show(); sys.exit(app.exec_())
+    f = QFont("Microsoft YaHei", 10)
+    app.setFont(f)
+    w = SodaPlayer()
+    w.show()
+    sys.exit(app.exec_())
