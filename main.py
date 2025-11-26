@@ -29,15 +29,15 @@ except ImportError:
     yt_dlp = None
 
 CONFIG_FILE = "config.json"
-METADATA_FILE = "metadata.json" # 存储歌手专辑信息
-HISTORY_FILE = "history.json"   # 存储历史记录
+METADATA_FILE = "metadata.json"
+HISTORY_FILE = "history.json"
+OFFSET_FILE = "offsets.json"
 
 # --- 样式表 ---
 STYLESHEET = """
 QMainWindow { background-color: #FFFFFF; }
 QWidget { font-family: "Microsoft YaHei", "SimSun", sans-serif; color: #333333; }
 
-/* 侧边栏 */
 QFrame#Sidebar { background-color: #F7F9FC; border-right: 1px solid #EEEEEE; }
 QLabel#Logo { font-size: 22px; font-weight: bold; color: #1ECD97; padding: 20px; }
 QLabel#SectionTitle { font-size: 12px; color: #999; padding: 10px 20px; font-weight: bold; }
@@ -52,11 +52,9 @@ QPushButton.NavBtn:checked { background-color: #1ECD97; color: white; font-weigh
 QPushButton#DownloadBtn { color: #FF6699; font-weight: bold; }
 QPushButton#DownloadBtn:hover { background-color: #FFF0F5; }
 
-/* 表格样式 */
 QTableWidget { background-color: #FFFFFF; border: none; outline: none; selection-background-color: #FFF8E1; selection-color: #F9A825; }
 QHeaderView::section { background-color: #FFFFFF; border: none; border-bottom: 1px solid #EEE; padding: 5px; font-weight: bold; color: #888; }
 
-/* 播放条 */
 QFrame#PlayerBar { background-color: #FFFFFF; border-top: 1px solid #F0F0F0; }
 QPushButton#PlayBtn { 
     background-color: #1ECD97; color: white; border-radius: 25px; 
@@ -116,21 +114,22 @@ class LyricListSearchWorker(QThread):
             print(f"Search error: {e}")
             self.search_finished.emit([])
 
-# --- 2. 手动歌词搜索弹窗 (优化版) ---
+# --- 2. 手动歌词搜索弹窗 ---
 class LyricSearchDialog(QDialog):
     def __init__(self, song_name, duration_ms=0, parent=None):
         super().__init__(parent)
         self.setWindowTitle("在线歌词搜索与绑定")
         self.resize(700, 500)
         self.result_id = None
-        self.duration_ms = duration_ms # 本地歌曲时长，用于辅助判断
+        self.duration_ms = duration_ms 
         
         layout = QVBoxLayout(self)
         h = QHBoxLayout()
         self.input_key = QLineEdit(song_name)
         btn = QPushButton("搜索网易云")
         btn.clicked.connect(self.start_search)
-        h.addWidget(self.input_key); h.addWidget(btn)
+        h.addWidget(self.input_key)
+        h.addWidget(btn)
         layout.addLayout(h)
         
         self.table = QTableWidget()
@@ -162,13 +161,10 @@ class LyricSearchDialog(QDialog):
         for i, item in enumerate(results):
             self.table.setItem(i, 0, QTableWidgetItem(item['name']))
             self.table.setItem(i, 1, QTableWidgetItem(item['artist']))
-            
-            # 时长高亮：如果和本地相差在 3秒内，标绿
             t_item = QTableWidgetItem(item['duration_str'])
             if abs(item['duration'] - self.duration_ms) < 3000 and self.duration_ms > 0:
                 t_item.setForeground(QColor("#1ECD97"))
                 t_item.setToolTip("时长匹配度极高")
-            
             self.table.setItem(i, 2, t_item)
             self.table.setItem(i, 3, QTableWidgetItem(str(item['id'])))
 
@@ -228,9 +224,12 @@ class BatchInfoDialog(QDialog):
         layout.addWidget(self.input_album)
         
         btn_box = QHBoxLayout()
-        btn_ok = QPushButton("确定"); btn_ok.clicked.connect(self.accept)
-        btn_cancel = QPushButton("取消"); btn_cancel.clicked.connect(self.reject)
-        btn_box.addWidget(btn_ok); btn_box.addWidget(btn_cancel)
+        btn_ok = QPushButton("确定")
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel = QPushButton("取消")
+        btn_cancel.clicked.connect(self.reject)
+        btn_box.addWidget(btn_ok)
+        btn_box.addWidget(btn_cancel)
         layout.addLayout(btn_box)
         
     def get_data(self):
@@ -250,7 +249,7 @@ class BatchRenameDialog(QDialog):
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
         
-        # Tab 1: 替换
+        # Tab 1
         tab_replace = QWidget()
         l1 = QVBoxLayout(tab_replace)
         h1 = QHBoxLayout()
@@ -261,7 +260,7 @@ class BatchRenameDialog(QDialog):
         l1.addLayout(h1); l1.addStretch()
         self.tabs.addTab(tab_replace, "文本替换")
         
-        # Tab 2: 裁剪
+        # Tab 2
         tab_trim = QWidget()
         l2 = QVBoxLayout(tab_trim)
         h2 = QHBoxLayout()
@@ -307,7 +306,7 @@ class BatchRenameDialog(QDialog):
         if idx == 0: return "replace", (self.input_find.text(), self.input_replace.text()), self.selected_indices
         else: return "trim", (self.spin_head.value(), self.spin_tail.value()), self.selected_indices
 
-# --- 5. 桌面歌词 (带设置记忆) ---
+# --- 5. 桌面歌词 ---
 class DesktopLyricWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -382,7 +381,7 @@ class DesktopLyricWindow(QWidget):
         elif action == act_lock: self.locked = not self.locked
         elif action == act_close: self.hide()
 
-# --- 6. 下载选项弹窗 (增加歌手专辑预设) ---
+# --- 6. 下载选项弹窗 ---
 class DownloadDialog(QDialog):
     def __init__(self, parent=None, current_p=1, collections=[]):
         super().__init__(parent)
@@ -431,7 +430,7 @@ class DownloadDialog(QDialog):
 # --- B站下载线程 ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
-    finished_signal = pyqtSignal(str, str) # folder, info_json_str
+    finished_signal = pyqtSignal(str, str) 
     error_signal = pyqtSignal(str)
 
     def __init__(self, url, save_path, mode="single", start_p=1):
@@ -475,21 +474,21 @@ class BilibiliDownloader(QThread):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (旗舰最终版)")
+        self.setWindowTitle("汽水音乐 (最终完全体)")
         self.resize(1150, 780)
         self.setStyleSheet(STYLESHEET)
 
         self.music_folder = ""
         self.current_collection = "" 
         self.collections = [] 
-        self.playlist = [] # [{path, name, artist, album, duration}]
-        self.history = []  # 历史记录 [{path, name...}]
+        self.playlist = [] 
+        self.history = []
         self.lyrics = []
         self.current_index = -1
         self.offset = 0.0
         
         self.saved_offsets = {}
-        self.metadata = {} # {filename: {artist:x, album:y}}
+        self.metadata = {} 
 
         self.mode = 0 
         self.rate = 1.0 
@@ -556,7 +555,7 @@ class SodaPlayer(QMainWindow):
 
         content = QWidget(); c_layout = QHBoxLayout(content)
         
-        # 列表升级为 TableWidget
+        # 列表
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["歌曲标题", "歌手", "专辑", "时长"])
@@ -670,7 +669,6 @@ class SodaPlayer(QMainWindow):
             for f in os.listdir(d):
                 if f.lower().endswith(exts):
                     full = os.path.abspath(os.path.join(d, f))
-                    # 读取元数据
                     meta = self.metadata.get(f, {"artist": "未知", "album": "未知"})
                     
                     song_data = {"path": full, "name": f, "artist": meta.get("artist"), "album": meta.get("album")}
@@ -680,14 +678,12 @@ class SodaPlayer(QMainWindow):
                     self.table.setItem(row, 0, QTableWidgetItem(os.path.splitext(f)[0]))
                     self.table.setItem(row, 1, QTableWidgetItem(meta.get("artist", "")))
                     self.table.setItem(row, 2, QTableWidgetItem(meta.get("album", "")))
-                    self.table.setItem(row, 3, QTableWidgetItem("-")) # 时长需加载后获取
+                    self.table.setItem(row, 3, QTableWidgetItem("-"))
                     row += 1
 
     def load_history_view(self):
         self.playlist = []
         self.table.setRowCount(0)
-        # 从 history.json 加载
-        # 这里简化处理，直接显示内存中的 history
         row = 0
         for song in self.history:
             if os.path.exists(song["path"]):
@@ -702,10 +698,7 @@ class SodaPlayer(QMainWindow):
     def show_context_menu(self, pos):
         items = self.table.selectedItems()
         if not items: return
-        
-        # 获取选中的行号
         selected_rows = sorted(list(set(i.row() for i in items)))
-        
         menu = QMenu()
         
         # 批量移动
@@ -722,7 +715,7 @@ class SodaPlayer(QMainWindow):
         menu.addMenu(act_move)
 
         menu.addAction("🔠 批量重命名", self.open_batch_rename)
-        menu.addAction("✏️ 批量修改信息 (歌手/专辑)", lambda: self.batch_edit_info(selected_rows))
+        menu.addAction("✏️ 批量修改信息", lambda: self.batch_edit_info(selected_rows))
         menu.addSeparator()
 
         if len(selected_rows) == 1:
@@ -736,13 +729,10 @@ class SodaPlayer(QMainWindow):
         menu.exec_(self.table.mapToGlobal(pos))
 
     def open_batch_move_dialog(self):
-        # 独立的批量移动按钮逻辑
         selected_rows = sorted(list(set(i.row() for i in self.table.selectedItems())))
         if not selected_rows:
             QMessageBox.warning(self, "提示", "请先在列表中选择要移动的歌曲")
             return
-        
-        # 弹窗选择目标
         dest_list = ["根目录"] + self.collections
         target, ok = QInputDialog.getItem(self, "批量移动", "选择目标合集:", dest_list, 0, False)
         if ok and target:
@@ -753,7 +743,6 @@ class SodaPlayer(QMainWindow):
         self.player.setMedia(QMediaContent())
         target_path = self.music_folder if not target_name else os.path.join(self.music_folder, target_name)
         if not os.path.exists(target_path): os.makedirs(target_path)
-        
         files_to_move = [self.playlist[i] for i in rows]
         count = 0
         for song in files_to_move:
@@ -767,9 +756,7 @@ class SodaPlayer(QMainWindow):
                     shutil.move(lrc_src, os.path.join(target_path, os.path.basename(lrc_src)))
                 count += 1
             except: pass
-        
-        self.full_scan()
-        QMessageBox.information(self, "成功", f"已移动 {count} 首")
+        self.full_scan(); QMessageBox.information(self, "成功", f"已移动 {count} 首")
 
     def batch_edit_info(self, rows):
         d = BatchInfoDialog(self)
@@ -783,7 +770,6 @@ class SodaPlayer(QMainWindow):
             self.save_metadata()
             self.full_scan()
 
-    # --- B站下载 ---
     def download_from_bilibili(self):
         if not self.music_folder: return QMessageBox.warning(self, "提示", "请先设置根文件夹")
         u, ok = QInputDialog.getText(self, "B站下载", "粘贴链接:")
@@ -796,11 +782,8 @@ class SodaPlayer(QMainWindow):
                 mode, folder, artist, album = dialog.get_data()
                 path = self.music_folder
                 if folder: path = os.path.join(path, folder)
-                
-                # 保存预设信息
                 self.temp_dl_artist = artist
                 self.temp_dl_album = album
-                
                 self.lbl_collection_title.setText("⏳ 下载中...")
                 self.dl = BilibiliDownloader(u, path, mode, p)
                 self.dl.progress_signal.connect(lambda s: self.lbl_collection_title.setText(s))
@@ -809,10 +792,8 @@ class SodaPlayer(QMainWindow):
                 self.dl.start()
     
     def on_dl_finish(self, folder, info_json):
-        # 扫描新文件并写入 Metadata
         for f in os.listdir(folder):
             if f.lower().endswith(('.m4a', '.mp4')):
-                # 简单判定：如果是刚下载的文件（这里简化处理，给文件夹内所有未标记文件加上）
                 if f not in self.metadata:
                     if self.temp_dl_artist or self.temp_dl_album:
                         self.metadata[f] = {}
@@ -824,12 +805,9 @@ class SodaPlayer(QMainWindow):
 
     def on_dl_error(self, m): QMessageBox.warning(self, "错", m)
 
-    # --- 歌词搜索与绑定 ---
     def open_manual_search(self, idx):
         song = self.playlist[idx]
-        # 获取当前时长
         duration = self.player.duration() if self.current_index == idx else 0
-        
         d = LyricSearchDialog(os.path.splitext(song["name"])[0], duration, self)
         if d.exec_() == QDialog.Accepted and d.result_id:
             lrc_path = os.path.splitext(song["path"])[0] + ".lrc"
@@ -841,8 +819,6 @@ class SodaPlayer(QMainWindow):
         if self.current_index == idx: self.parse_lrc_content(content)
         QMessageBox.information(self, "成功", "歌词已绑定")
 
-    # --- 其他基础功能 (重命名、删除等) ---
-    # ... (保持原有逻辑，只需将 list_widget 操作改为 table 操作) ...
     def open_batch_rename(self):
         if not self.playlist: return
         self.player.setMedia(QMediaContent())
@@ -894,7 +870,7 @@ class SodaPlayer(QMainWindow):
                 if not os.path.exists(d): os.makedirs(d)
                 shutil.move(p, os.path.join(d, s["name"]))
                 shutil.copy(f, os.path.join(d, n+".lrc"))
-                self.full_scan()
+                self.full_scan(); QMessageBox.information(self,"ok","ok")
             except:pass
 
     def remove_lyric(self, idx):
@@ -921,7 +897,6 @@ class SodaPlayer(QMainWindow):
         self.current_index = idx
         song = self.playlist[idx]
         
-        # 记录历史
         if song not in self.history:
             self.history.insert(0, song)
             if len(self.history) > 50: self.history.pop()
@@ -935,11 +910,9 @@ class SodaPlayer(QMainWindow):
             self.offset = self.saved_offsets.get(song["name"], 0.0)
             self.update_offset_lbl()
             
-            # 歌词匹配逻辑
             lrc = os.path.splitext(song["path"])[0]+".lrc"
             if os.path.exists(lrc): self.parse_lrc_file(lrc)
             else:
-                # 自动后台搜索
                 self.panel_lyric.clear(); self.panel_lyric.addItem("搜索中...")
                 self.searcher = LyricListSearchWorker(song["name"])
                 self.searcher.search_finished.connect(self.on_auto_lrc_result)
@@ -948,7 +921,6 @@ class SodaPlayer(QMainWindow):
 
     def on_auto_lrc_result(self, results):
         if results and self.current_index >= 0:
-            # 简单权重：优先匹配文件名完全一致的，其次取第一个
             best = results[0]
             lrc_path = os.path.splitext(self.playlist[self.current_index]["path"])[0] + ".lrc"
             self.adl = LyricDownloader(best['id'], lrc_path)
@@ -978,8 +950,15 @@ class SodaPlayer(QMainWindow):
                 if t.strip():
                     self.lyrics.append({"t": tm, "txt": t.strip()})
                     self.panel_lyric.addItem(t.strip())
-
-    # 播放控制
+    def adjust_offset(self, v):
+        self.offset += v
+        self.update_offset_lbl()
+        if self.current_index >= 0:
+            self.saved_offsets[self.playlist[self.current_index]["name"]] = self.offset
+            self.save_offsets()
+    def update_offset_lbl(self):
+        s = "+" if self.offset >= 0 else ""
+        self.lbl_offset.setText(f"偏移: {s}{self.offset:.1f}s")
     def toggle_play(self):
         if self.player.state() == QMediaPlayer.PlayingState: self.player.pause()
         else: self.player.play()
@@ -1003,14 +982,6 @@ class SodaPlayer(QMainWindow):
         if s==QMediaPlayer.EndOfMedia: 
             if self.mode==1: self.player.play() 
             else: self.play_next()
-    def handle_player_error(self): QTimer.singleShot(1000, self.play_next)
-    
-    # 进度与歌词
-    def on_duration_changed(self, d): 
-        self.slider.setRange(0, d); self.lbl_total_time.setText(ms_to_str(d))
-        if self.current_index >= 0:
-            # 更新列表时长显示
-            self.table.setItem(self.current_index, 3, QTableWidgetItem(ms_to_str(d)))
     def on_position_changed(self, pos):
         if not self.is_slider_pressed: self.slider.setValue(pos)
         self.lbl_curr_time.setText(ms_to_str(pos))
@@ -1031,29 +1002,20 @@ class SodaPlayer(QMainWindow):
     def slider_released(self): self.is_slider_pressed = False; self.player.setPosition(self.slider.value())
     def slider_moved(self, v): 
         if self.is_slider_pressed: self.lbl_curr_time.setText(ms_to_str(v))
-    
-    def adjust_offset(self, v):
-        self.offset += v
-        self.update_offset_lbl()
+    def on_duration_changed(self, d): 
+        self.slider.setRange(0, d); self.lbl_total_time.setText(ms_to_str(d))
         if self.current_index >= 0:
-            self.saved_offsets[self.playlist[self.current_index]["name"]] = self.offset
-            self.save_offsets()
-    def update_offset_lbl(self):
-        s = "+" if self.offset >= 0 else ""
-        self.lbl_offset.setText(f"偏移: {s}{self.offset:.1f}s")
-    
+            self.table.setItem(self.current_index, 3, QTableWidgetItem(ms_to_str(d)))
     def toggle_lyric(self): 
         if self.desktop_lyric.isVisible(): self.desktop_lyric.hide()
         else: self.desktop_lyric.show()
 
-    # 配置存取
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
             try: 
                 with open(CONFIG_FILE,'r') as f: 
                     d = json.load(f)
                     self.music_folder=d.get("folder","")
-                    # 恢复桌面歌词位置
                     geo = d.get("lyric_geo")
                     if geo: self.desktop_lyric.setGeometry(*geo)
                     col = d.get("lyric_color")
