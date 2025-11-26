@@ -23,9 +23,9 @@ jobs:
         pip install pyinstaller PyQt5 PyQt5-sip yt-dlp
 
     - name: Build EXE
-      # 关键修改：
-      # --collect-all PyQt5.QtMultimedia: 强制打包音频解码插件(解决无法播放)
-      # --collect-all yt_dlp: 确保下载功能正常
+      # 重点：
+      # 1. collect-all PyQt5.QtMultimedia -> 强制带上音频解码器
+      # 2. collect-all yt_dlp -> 强制带上下载器
       run: |
         pyinstaller --noconsole --onefile --collect-all PyQt5.QtMultimedia --collect-all yt_dlp --name "SodaMusicPlayer" main.py
 
