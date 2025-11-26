@@ -22,25 +22,12 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller PyQt5 PyQt5-sip yt-dlp
 
-    # --- 【核心修复】使用专业插件安装 FFmpeg ---
-    - name: Setup FFmpeg
-      uses: FedericoCarboni/setup-ffmpeg@v3
-      with:
-        ffmpeg-version: release
-        architecture: x64
-
-    # --- 把安装好的 FFmpeg 复制到当前目录，以便打包 ---
-    - name: Copy FFmpeg for Packaging
-      shell: pwsh
-      run: |
-        $ffmpegPath = (Get-Command ffmpeg).Source
-        Copy-Item $ffmpegPath -Destination .\ffmpeg.exe
-        Write-Host "FFmpeg copied from $ffmpegPath to current directory"
-
     - name: Build EXE
-      # --add-binary "ffmpeg.exe;." 把刚才复制过来的好文件打包进去
+      # 关键修改：
+      # --collect-all PyQt5: 强制收集 PyQt5 的所有插件(包括音频解码插件)
+      # --collect-all yt_dlp: 强制收集下载器组件
       run: |
-        pyinstaller --noconsole --onefile --collect-all PyQt5 --collect-all yt_dlp --add-binary "ffmpeg.exe;." --name "SodaMusicPlayer" main.py
+        pyinstaller --noconsole --onefile --collect-all PyQt5 --collect-all yt_dlp --name "SodaMusicPlayer" main.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
