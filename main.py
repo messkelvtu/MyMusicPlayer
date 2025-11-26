@@ -5,7 +5,8 @@ import shutil
 import random
 import threading
 import re
-import difflib  # 引入用于字符串模糊匹配的库
+import urllib.request
+import urllib.parse
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QListWidget, QListWidgetItem,
                              QFileDialog, QFrame, QAbstractItemView, QCheckBox,
@@ -68,8 +69,57 @@ QSlider::sub-page:horizontal { background: #1ECD97; border-radius: 3px; }
 """
 
 def sanitize_filename(name):
-    # 只移除系统非法字符，保留空格和中文，确保标题完整
     return re.sub(r'[\\/*?:"<>|]', "", name).strip()
+
+# --- 在线歌词搜索线程 (网易云接口) ---
+class OnlineLyricSearcher(QThread):
+    finished_signal = pyqtSignal(str, str) # lyric_content, save_path
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, song_name, save_path):
+        super().__init__()
+        self.song_name = song_name
+        self.save_path = save_path
+
+    def run(self):
+        try:
+            # 1. 清理歌名 (去掉后缀和无关字符，提高命中率)
+            clean_name = os.path.splitext(self.song_name)[0]
+            # 去掉括号里的内容，比如 (Official Video)
+            clean_name = re.sub(r'\(.*?\)|\[.*?\]|【.*?】', '', clean_name).strip()
+            
+            # 2. 搜索歌曲 ID
+            search_url = "http://music.163.com/api/search/get/web?csrf_token="
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            data = urllib.parse.urlencode({'s': clean_name, 'type': 1, 'offset': 0, 'total': 'true', 'limit': 1}).encode('utf-8')
+            
+            req = urllib.request.Request(search_url, data=data, headers=headers)
+            with urllib.request.urlopen(req) as f:
+                res = json.loads(f.read().decode('utf-8'))
+            
+            if not res.get('result') or not res['result'].get('songs'):
+                self.error_signal.emit("未找到在线歌词")
+                return
+
+            song_id = res['result']['songs'][0]['id']
+
+            # 3. 获取歌词
+            lyric_url = f"http://music.163.com/api/song/lyric?os=pc&id={song_id}&lv=-1&kv=-1&tv=-1"
+            req_lrc = urllib.request.Request(lyric_url, headers=headers)
+            with urllib.request.urlopen(req_lrc) as f:
+                lrc_res = json.loads(f.read().decode('utf-8'))
+
+            if 'lrc' in lrc_res and 'lyric' in lrc_res['lrc']:
+                lyric_text = lrc_res['lrc']['lyric']
+                # 保存到本地
+                with open(self.save_path, 'w', encoding='utf-8') as f:
+                    f.write(lyric_text)
+                self.finished_signal.emit(lyric_text, self.save_path)
+            else:
+                self.error_signal.emit("该歌曲无歌词")
+
+        except Exception as e:
+            self.error_signal.emit(str(e))
 
 # --- 批量重命名弹窗 ---
 class BatchRenameDialog(QDialog):
@@ -108,8 +158,6 @@ class BatchRenameDialog(QDialog):
         
         btn_box = QHBoxLayout()
         btn_ok = QPushButton("开始重命名")
-        btn_ok.setFixedSize(120, 40)
-        btn_ok.setStyleSheet("background-color: #1ECD97; color: white; font-weight: bold; border-radius: 5px;")
         btn_ok.clicked.connect(self.on_accept)
         btn_box.addStretch()
         btn_box.addWidget(btn_ok)
@@ -184,8 +232,7 @@ class DownloadDialog(QDialog):
 
     def on_combo_change(self):
         if self.combo_coll.currentData() == "NEW":
-            self.input_new.show()
-            self.input_new.setFocus()
+            self.input_new.show(); self.input_new.setFocus()
         else:
             self.input_new.hide()
 
@@ -214,23 +261,19 @@ class BilibiliDownloader(QThread):
             return
 
         if not os.path.exists(self.save_path):
-            try:
-                os.makedirs(self.save_path)
-            except Exception as e:
-                self.error_signal.emit(f"无法创建文件夹: {e}")
-                return
+            try: os.makedirs(self.save_path)
+            except Exception as e: return self.error_signal.emit(f"无法建文件夹: {e}")
 
         def progress_hook(d):
             if d['status'] == 'downloading':
                 p = d.get('_percent_str', '0%')
-                filename = os.path.basename(d.get('filename', '未知'))
-                if len(filename) > 20: filename = filename[:20] + "..."
-                self.progress_signal.emit(f"⬇️ {p} : {filename}")
+                fn = os.path.basename(d.get('filename', '未知'))
+                if len(fn)>20: fn = fn[:20]+"..."
+                self.progress_signal.emit(f"⬇️ {p} : {fn}")
             elif d['status'] == 'finished':
                 self.progress_signal.emit("✅ 下载完成，处理中...")
 
         items_range = str(self.start_p) if self.mode == 'single' else f"{self.start_p}-"
-
         ydl_opts = {
             'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best', 
             'outtmpl': os.path.join(self.save_path, '%(title)s.%(ext)s'),
@@ -241,7 +284,7 @@ class BilibiliDownloader(QThread):
             'progress_hooks': [progress_hook],
             'quiet': True,
             'nocheckcertificate': True,
-            'restrictfilenames': False, # 允许中文和空格
+            'restrictfilenames': False,
         }
 
         try:
@@ -310,7 +353,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (智能歌词版)")
+        self.setWindowTitle("汽水音乐 (全能旗舰版)")
         self.resize(1100, 750)
         self.setStyleSheet(STYLESHEET)
 
@@ -486,7 +529,6 @@ class SodaPlayer(QMainWindow):
                     song_base = os.path.splitext(files[0])[0]
                     if item in song_base or song_base in item: continue 
                 self.collections.append(item)
-        
         self.nav_list.clear()
         self.nav_list.addItem("💿  所有歌曲") 
         for c in self.collections:
@@ -541,26 +583,61 @@ class SodaPlayer(QMainWindow):
         items = self.list_widget.selectedItems()
         menu = QMenu()
         
-        act_batch_rename = QAction("🔠 批量重命名 (选中/全部)", self)
+        # 批量移动功能
+        act_move = QMenu("📂 批量移动到...", self)
+        act_root = QAction("💿 根目录", self)
+        act_root.triggered.connect(lambda: self.batch_move(items, ""))
+        act_move.addAction(act_root)
+        act_move.addSeparator()
+        for c in self.collections:
+            if c != self.current_collection:
+                act_sub = QAction(f"📁 {c}", self)
+                act_sub.triggered.connect(lambda checked, target=c: self.batch_move(items, target))
+                act_move.addAction(act_sub)
+        menu.addMenu(act_move)
+
+        act_batch_rename = QAction("🔠 批量重命名", self)
         act_batch_rename.triggered.connect(self.open_batch_rename)
         menu.addAction(act_batch_rename)
         menu.addSeparator()
 
-        if items:
+        if items and len(items) == 1:
             idx = self.list_widget.row(items[0])
-            if len(items) == 1:
-                act_rename = QAction("✏️ 重命名单曲", self)
-                act_bind = QAction("🔐 绑定歌词 (整理)", self)
-                act_rename.triggered.connect(lambda: self.rename_song(idx))
-                act_bind.triggered.connect(lambda: self.bind_lyrics(idx))
-                menu.addAction(act_rename)
-                menu.addAction(act_bind)
-            
+            act_rename = QAction("✏️ 重命名单曲", self)
+            act_bind = QAction("🔐 绑定歌词 (整理)", self)
+            act_rename.triggered.connect(lambda: self.rename_song(idx))
+            act_bind.triggered.connect(lambda: self.bind_lyrics(idx))
+            menu.addAction(act_rename)
+            menu.addAction(act_bind)
+        
+        if items:
             act_del = QAction(f"🗑️ 删除 ({len(items)}首)", self)
             act_del.triggered.connect(lambda: self.delete_songs(items))
             menu.addAction(act_del)
         
         menu.exec_(self.list_widget.mapToGlobal(pos))
+
+    def batch_move(self, items, target_folder_name):
+        target_path = self.music_folder if not target_folder_name else os.path.join(self.music_folder, target_folder_name)
+        if not os.path.exists(target_path): os.makedirs(target_path)
+        count = 0
+        for item in items:
+            idx = self.list_widget.row(item)
+            if idx >= len(self.playlist): continue
+            song = self.playlist[idx]
+            if self.current_index == idx: self.player.stop()
+            try:
+                src = song["path"]
+                dst = os.path.join(target_path, song["name"])
+                shutil.move(src, dst)
+                lrc_src = os.path.splitext(src)[0] + ".lrc"
+                if os.path.exists(lrc_src):
+                    lrc_dst = os.path.join(target_path, os.path.basename(lrc_src))
+                    shutil.move(lrc_src, lrc_dst)
+                count += 1
+            except Exception as e: print(f"Move error: {e}")
+        self.full_scan()
+        QMessageBox.information(self, "成功", f"已移动 {count} 首歌曲")
 
     def open_batch_rename(self):
         if not self.playlist: return
@@ -586,7 +663,7 @@ class SodaPlayer(QMainWindow):
                             os.rename(old_lrc, new_lrc)
                     except: pass
             self.load_songs_for_collection()
-            QMessageBox.information(self, "完成", f"成功重命名 {count} 个文件")
+            QMessageBox.information(self, "完成", f"重命名 {count} 个文件")
 
     def rename_song(self, idx):
         song = self.playlist[idx]
@@ -680,68 +757,37 @@ class SodaPlayer(QMainWindow):
             self.player.setPlaybackRate(self.rate)
             self.player.play()
             self.btn_play.setText("⏸")
-            self.auto_match_lyric(song["path"])
+            self.panel_lyric.clear()
+            self.desktop_lyric.set_lyrics("", "正在搜索歌词...", "")
+            self.lyrics = []
+            
+            # 优先找本地
+            lrc_path = os.path.splitext(song["path"])[0] + ".lrc"
+            if os.path.exists(lrc_path):
+                self.parse_lrc(lrc_path)
+            else:
+                # 本地无歌词，启动在线搜索
+                self.online_searcher = OnlineLyricSearcher(song["name"], lrc_path)
+                self.online_searcher.finished_signal.connect(self.on_online_lyric_found)
+                self.online_searcher.error_signal.connect(lambda e: self.desktop_lyric.set_lyrics("", "无歌词", ""))
+                self.online_searcher.start()
+                
         except Exception as e: print(f"Error: {e}")
 
-    def auto_match_lyric(self, song_path):
-        folder = os.path.dirname(song_path)
-        song_name = os.path.splitext(os.path.basename(song_path))[0]
-        
-        # 1. 优先找同名
-        exact_path = os.path.join(folder, song_name + ".lrc")
-        if os.path.exists(exact_path):
-            self.parse_lrc(exact_path)
-            return
-
-        # 2. 智能匹配
-        lrc_files = [f for f in os.listdir(folder) if f.lower().endswith('.lrc')]
-        
-        def clean(s):
-            return re.sub(r'[^\w\u4e00-\u9fa5]', '', s).lower()
-        
-        target = clean(song_name)
-        best_match = None
-        highest_score = 0
-        
-        for lrc in lrc_files:
-            lrc_name = os.path.splitext(lrc)[0]
-            source = clean(lrc_name)
-            
-            # 包含匹配 (歌词名在歌名里)
-            if source in target and len(source) > 1:
-                self.parse_lrc(os.path.join(folder, lrc))
-                return
-                
-            # 模糊匹配
-            ratio = difflib.SequenceMatcher(None, source, target).ratio()
-            if ratio > highest_score:
-                highest_score = ratio
-                best_match = lrc
-        
-        if highest_score > 0.4 and best_match:
-            self.parse_lrc(os.path.join(folder, best_match))
-        else:
-            self.panel_lyric.clear()
-            self.panel_lyric.addItem("纯音乐 / 未匹配到歌词")
-            self.desktop_lyric.set_lyrics("", "无歌词", "")
+    def on_online_lyric_found(self, content, path):
+        self.parse_lrc(path)
 
     def parse_lrc(self, path):
         self.lyrics = []
         self.panel_lyric.clear()
-        self.desktop_lyric.set_lyrics("", "等待歌词...", "")
         self.offset = 0
-        
+        if not os.path.exists(path): return
         lines = []
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+            with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
         except Exception:
-            try:
-                with open(path, 'r', encoding='gbk') as f:
-                    lines = f.readlines()
-            except Exception:
-                return
-
+            try: with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
+            except Exception: return
         import re
         p = re.compile(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)')
         for l in lines:
