@@ -1161,9 +1161,7 @@ class SodaPlayer(QMainWindow):
             "lyric_color": self.desktop_lyric.font_color.getRgb()[:3]
         }
         with open(CONFIG_FILE,'w') as f: json.dump(data,f)
-    def save_offsets(self):
-    with open(OFFSET_FILE, 'w') as f:
-        json.dump(self.saved_offsets, f)
+    def save_offsets(self): with open(OFFSET_FILE, 'w') as f: json.dump(self.saved_offsets, f)
     def save_metadata(self): with open(METADATA_FILE,'w') as f: json.dump(self.metadata,f)
     def save_history(self): with open(HISTORY_FILE,'w') as f: json.dump(self.history,f)
 
