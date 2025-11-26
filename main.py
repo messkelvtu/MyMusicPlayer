@@ -14,7 +14,7 @@ from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QSize, QCoreApplication,
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
-# --- 核心配置：强制使用 Windows 原生解码器 (解决播放失败) ---
+# --- 强制使用 Windows 原生解码器 ---
 os.environ["QT_MULTIMEDIA_PREFERRED_PLUGINS"] = "windowsmediafoundation"
 
 try:
@@ -69,10 +69,9 @@ QSlider::sub-page:horizontal {
 
 # --- 工具函数：文件名净化 ---
 def sanitize_filename(name):
-    # 移除文件名中的非法字符
     return re.sub(r'[\\/*?:"<>|]', "", name).strip()
 
-# --- 下载模式选择弹窗 ---
+# --- 下载模式弹窗 ---
 class DownloadDialog(QDialog):
     def __init__(self, parent=None, current_p=1):
         super().__init__(parent)
@@ -80,18 +79,17 @@ class DownloadDialog(QDialog):
         self.resize(350, 180)
         layout = QVBoxLayout(self)
         
-        layout.addWidget(QLabel(f"检测到当前视频是第 {current_p} 集/首"))
-        layout.addWidget(QLabel("请选择下载模式："))
+        layout.addWidget(QLabel(f"识别到当前链接为第 {current_p} 集"))
         
-        self.rb_single = QRadioButton(f"仅下载当前这 1 首 (P{current_p})")
-        self.rb_list = QRadioButton(f"下载从此开始的全部 (P{current_p} - 结尾)")
+        self.rb_single = QRadioButton(f"单曲下载 (仅第 {current_p} 集)")
+        self.rb_list = QRadioButton(f"合集下载 (从第 {current_p} 集到最后)")
         self.rb_single.setChecked(True)
         
         layout.addWidget(self.rb_single)
         layout.addWidget(self.rb_list)
         
         btn_box = QHBoxLayout()
-        btn_ok = QPushButton("开始下载")
+        btn_ok = QPushButton("🚀 开始下载")
         btn_ok.clicked.connect(self.accept)
         btn_cancel = QPushButton("取消")
         btn_cancel.clicked.connect(self.reject)
@@ -103,7 +101,7 @@ class DownloadDialog(QDialog):
     def get_mode(self):
         return "playlist" if self.rb_list.isChecked() else "single"
 
-# --- B站下载线程 (智能分P版) ---
+# --- B站下载线程 (带详细进度) ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
@@ -118,37 +116,50 @@ class BilibiliDownloader(QThread):
 
     def run(self):
         if not yt_dlp:
-            self.error_signal.emit("错误：缺少 yt-dlp 组件")
+            self.error_signal.emit("错误：缺少 yt-dlp")
             return
 
         def progress_hook(d):
             if d['status'] == 'downloading':
-                p = d.get('_percent_str', '0%')
-                # 智能截断文件名
+                # 获取进度百分比
+                percent = d.get('_percent_str', '0%')
+                
+                # 获取文件名 (当前分P标题)
                 raw_name = d.get('filename', '未知')
                 filename = os.path.basename(raw_name)
-                if len(filename) > 25: filename = filename[:25] + "..."
-                self.progress_signal.emit(f"⬇️ {p} : {filename}")
+                if len(filename) > 15: filename = filename[:15] + "..."
+                
+                # 获取合集进度 (第几首 / 共几首)
+                # yt-dlp 的 info_dict 里包含了 playlist_index 和 playlist_count
+                info = d.get('info_dict', {})
+                idx = info.get('playlist_index', 1)
+                total = info.get('n_entries', '?')
+                
+                if total and str(total) != '?':
+                    msg = f"⬇️ [{idx}/{total}] {percent} : {filename}"
+                else:
+                    msg = f"⬇️ {percent} : {filename}"
+                    
+                self.progress_signal.emit(msg)
+                
             elif d['status'] == 'finished':
-                self.progress_signal.emit("✅ 当前文件下载完成...")
+                self.progress_signal.emit("✅ 一首下载完成，准备下一首...")
 
-        # 计算下载范围字符串
-        if self.mode == 'single':
-            # 只下载当前P：例如 "2"
-            items_range = str(self.start_p)
-        else:
-            # 从当前P到最后：例如 "2-" (yt-dlp 会自动检测合集总数并停止)
-            items_range = f"{self.start_p}-"
+        items_range = str(self.start_p) if self.mode == 'single' else f"{self.start_p}-"
 
         ydl_opts = {
-            # 强制 MP4/M4A (Windows 兼容性最佳)
+            # 强制 m4a/mp4
             'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best', 
-            # 文件名模板：建议加上序号，方便排序
-            'outtmpl': os.path.join(self.folder, '%(playlist_index)s - %(title)s.%(ext)s'),
             
-            # 模式设置
-            'noplaylist': False, # 必须开启列表支持才能识别 range
-            'playlist_items': items_range, # 核心：传入 "2-" 或 "2"
+            # 关键修改：使用 %(title)s 也就是当前选集的标题，而不是合集标题
+            'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
+            
+            # 关键修改：强制覆盖重名文件，不生成 (1)
+            'overwrites': True,
+            'nooverwrites': False,
+            
+            'noplaylist': False, 
+            'playlist_items': items_range,
             
             'ignoreerrors': True,
             'progress_hooks': [progress_hook],
@@ -157,18 +168,16 @@ class BilibiliDownloader(QThread):
             'restrictfilenames': False, # 保留中文
         }
 
-        mode_str = f"单曲 P{self.start_p}" if self.mode == 'single' else f"列表 P{self.start_p} 到 结尾"
-        
         try:
-            self.progress_signal.emit(f"🔍 正在解析 ({mode_str})...")
+            self.progress_signal.emit(f"🔍 解析中... (模式: {self.mode})")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
             
-            self.progress_signal.emit("🎉 全部任务已结束")
+            self.progress_signal.emit("🎉 所有任务完成")
             self.finished_signal.emit()
             
         except Exception as e:
-            self.error_signal.emit(f"❌ 下载出错: {str(e)}")
+            self.error_signal.emit(f"❌: {str(e)}")
 
 # --- 桌面歌词 ---
 class DesktopLyricWindow(QWidget):
@@ -235,7 +244,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (合集增强版)")
+        self.setWindowTitle("汽水音乐 (旗舰版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -281,7 +290,7 @@ class SodaPlayer(QMainWindow):
         self.btn_local.setProperty("NavBtn", True)
         side_layout.addWidget(self.btn_local)
 
-        self.btn_bili = QPushButton("📺  B站下载/合集")
+        self.btn_bili = QPushButton("📺  B站/合集下载")
         self.btn_bili.setObjectName("DownloadBtn")
         self.btn_bili.setProperty("NavBtn", True)
         self.btn_bili.clicked.connect(self.download_from_bilibili)
@@ -390,20 +399,69 @@ class SodaPlayer(QMainWindow):
 
     def show_context_menu(self, pos):
         item = self.list_widget.itemAt(pos)
-        if not item: return
+        
+        # 即使没选中歌曲，也可以点右键批量操作
         menu = QMenu()
-        act_rename = QAction("✏️ 重命名", self)
-        act_bind = QAction("🔐 绑定歌词 (整理模式)", self)
-        act_del = QAction("🗑️ 删除", self)
-        idx = self.list_widget.row(item)
-        act_rename.triggered.connect(lambda: self.rename_song(idx))
-        act_bind.triggered.connect(lambda: self.bind_lyrics(idx))
-        act_del.triggered.connect(lambda: self.delete_song(idx))
-        menu.addAction(act_rename)
-        menu.addAction(act_bind)
-        menu.addSeparator()
-        menu.addAction(act_del)
+        
+        # 选中项操作
+        if item:
+            idx = self.list_widget.row(item)
+            act_rename = QAction("✏️ 重命名单曲", self)
+            act_bind = QAction("🔐 绑定歌词 (整理模式)", self)
+            act_del = QAction("🗑️ 删除", self)
+            
+            act_rename.triggered.connect(lambda: self.rename_song(idx))
+            act_bind.triggered.connect(lambda: self.bind_lyrics(idx))
+            act_del.triggered.connect(lambda: self.delete_song(idx))
+            
+            menu.addAction(act_rename)
+            menu.addAction(act_bind)
+            menu.addAction(act_del)
+            menu.addSeparator()
+
+        # 全局操作
+        act_batch_rename = QAction("🔠 批量重命名 (查找替换)", self)
+        act_batch_rename.triggered.connect(self.batch_rename)
+        menu.addAction(act_batch_rename)
+        
         menu.exec_(self.list_widget.mapToGlobal(pos))
+
+    # --- 批量重命名功能 ---
+    def batch_rename(self):
+        if not self.playlist: return QMessageBox.warning(self, "提示", "列表为空")
+        
+        find_str, ok1 = QInputDialog.getText(self, "批量重命名", "输入要【查找】的字符 (例如: 【高清】):")
+        if not ok1: return
+        
+        replace_str, ok2 = QInputDialog.getText(self, "批量重命名", f"将 '{find_str}' 【替换】为 (留空则删除):")
+        if not ok2: return
+        
+        count = 0
+        for song in self.playlist:
+            if find_str in song["name"]:
+                old_path = song["path"]
+                new_name = song["name"].replace(find_str, replace_str)
+                new_path = os.path.join(os.path.dirname(old_path), new_name)
+                
+                try:
+                    # 如果当前在播放这首，先停止
+                    if self.current_index >= 0 and self.playlist[self.current_index]["path"] == old_path:
+                        self.player.stop()
+                        
+                    os.rename(old_path, new_path)
+                    count += 1
+                    
+                    # 顺便尝试改同名lrc
+                    old_lrc = os.path.splitext(old_path)[0] + ".lrc"
+                    if os.path.exists(old_lrc):
+                        new_lrc_name = os.path.splitext(new_name)[0] + ".lrc"
+                        os.rename(old_lrc, os.path.join(os.path.dirname(old_path), new_lrc_name))
+                        
+                except Exception as e:
+                    print(f"Rename failed: {e}")
+        
+        self.scan_music()
+        QMessageBox.information(self, "完成", f"已批量修改 {count} 个文件")
 
     def rename_song(self, idx):
         song = self.playlist[idx]
@@ -426,30 +484,20 @@ class SodaPlayer(QMainWindow):
         song = self.playlist[idx]
         song_path = song["path"]
         song_name = os.path.splitext(song["name"])[0]
-        
         lrc_file, _ = QFileDialog.getOpenFileName(self, "选择歌词文件 (将复制)", "", "LRC/TXT (*.lrc *.txt)")
         if not lrc_file: return
-
         new_folder_name = f"{song_name}"
         new_folder_path = os.path.join(self.music_folder, new_folder_name)
-        
         try:
-            if not os.path.exists(new_folder_path):
-                os.makedirs(new_folder_path)
-            
+            if not os.path.exists(new_folder_path): os.makedirs(new_folder_path)
             new_song_path = os.path.join(new_folder_path, song["name"])
             if self.current_index == idx: self.player.stop()
-            
             shutil.move(song_path, new_song_path)
-            
             new_lrc_path = os.path.join(new_folder_path, song_name + ".lrc")
             shutil.copy(lrc_file, new_lrc_path)
-            
             QMessageBox.information(self, "成功", f"已整理到文件夹:\n{new_folder_name}")
             self.scan_music() 
-            
-        except Exception as e:
-            QMessageBox.warning(self, "操作失败", str(e))
+        except Exception as e: QMessageBox.warning(self, "操作失败", str(e))
 
     def delete_song(self, idx):
         song = self.playlist[idx]
@@ -466,13 +514,9 @@ class SodaPlayer(QMainWindow):
         if not self.music_folder: return QMessageBox.warning(self, "提示", "请先设置文件夹")
         u, ok = QInputDialog.getText(self, "B站下载", "粘贴链接 (支持BV号/合集):")
         if ok and u:
-            # 提取 P 参数
             current_p = 1
             match = re.search(r'[?&]p=(\d+)', u)
-            if match:
-                current_p = int(match.group(1))
-
-            # 弹窗选择模式
+            if match: current_p = int(match.group(1))
             dialog = DownloadDialog(self, current_p)
             if dialog.exec_() == QDialog.Accepted:
                 mode = dialog.get_mode()
@@ -486,10 +530,7 @@ class SodaPlayer(QMainWindow):
     def on_dl_finish(self):
         self.scan_music()
         QMessageBox.information(self, "完成", "下载任务结束")
-    
-    def on_dl_error(self, msg):
-        QMessageBox.warning(self, "下载出错", msg)
-
+    def on_dl_error(self, msg): QMessageBox.warning(self, "下载出错", msg)
     def select_folder(self):
         f = QFileDialog.getExistingDirectory(self, "选择目录")
         if f: self.music_folder = f; self.scan_music(); self.save_config()
@@ -499,7 +540,6 @@ class SodaPlayer(QMainWindow):
         self.list_widget.clear()
         if not os.path.exists(self.music_folder): return
         exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
-        
         for root, dirs, files in os.walk(self.music_folder):
             for f in files:
                 if f.lower().endswith(exts):
@@ -508,23 +548,19 @@ class SodaPlayer(QMainWindow):
                     self.list_widget.addItem(os.path.splitext(f)[0])
 
     def play_selected(self, item): self.play_index(self.list_widget.row(item))
-
     def play_index(self, idx):
         if not self.playlist or idx < 0 or idx >= len(self.playlist): return
         self.current_index = idx
         song = self.playlist[idx]
-        
         try:
             url = QUrl.fromLocalFile(song["path"])
             self.player.setMedia(QMediaContent(url))
             self.player.setPlaybackRate(self.rate)
             self.player.play()
-            
             self.btn_play.setText("⏸")
             self.list_widget.setCurrentRow(idx)
             self.parse_lrc(os.path.splitext(song["path"])[0] + ".lrc")
-        except Exception as e:
-            print(f"Play Error: {e}")
+        except Exception as e: print(f"Play Error: {e}")
 
     def parse_lrc(self, path):
         self.lyrics = []
@@ -534,16 +570,12 @@ class SodaPlayer(QMainWindow):
         if not os.path.exists(path): 
             self.panel_lyric.addItem("纯音乐")
             return
-        
         lines = []
         try:
             with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
         except Exception:
-            try:
-                with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
-            except Exception:
-                return
-
+            try: with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
+            except Exception: return
         import re
         p = re.compile(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)')
         for l in lines:
@@ -559,12 +591,10 @@ class SodaPlayer(QMainWindow):
     def toggle_play(self):
         if self.player.state() == QMediaPlayer.PlayingState: self.player.pause()
         elif self.playlist: self.player.play()
-    
     def toggle_mode(self):
         self.mode = (self.mode + 1) % 3
         modes = ["🔁", "🔂", "🔀"]
         self.btn_mode.setText(modes[self.mode])
-
     def toggle_rate(self):
         rates = [1.0, 1.25, 1.5, 2.0, 0.5]
         try: curr_idx = rates.index(self.rate)
@@ -572,36 +602,29 @@ class SodaPlayer(QMainWindow):
         self.rate = rates[(curr_idx + 1) % len(rates)]
         self.player.setPlaybackRate(self.rate)
         self.btn_rate.setText(f"{self.rate}x")
-
     def play_next(self):
         if not self.playlist: return
         if self.mode == 2: nxt = random.randint(0, len(self.playlist)-1)
         else: nxt = (self.current_index + 1) % len(self.playlist)
         self.play_index(nxt)
-
     def play_prev(self):
         if not self.playlist: return
         if self.mode == 2: prev = random.randint(0, len(self.playlist)-1)
         else: prev = (self.current_index - 1) % len(self.playlist)
         self.play_index(prev)
-
     def on_state_changed(self, state):
         if state == QMediaPlayer.PlayingState: self.btn_play.setText("⏸")
         else: self.btn_play.setText("▶")
-
     def on_media_status_changed(self, status):
         if status == QMediaPlayer.EndOfMedia:
             if self.mode == 1: self.player.play()
             else: self.play_next()
-
     def handle_player_error(self):
         print(f"Error: {self.player.errorString()}")
         QTimer.singleShot(1000, self.play_next)
-
     def on_duration_changed(self, dur):
         self.slider.setRange(0, dur)
         self.lbl_total_time.setText(self.fmt_time(dur))
-
     def on_position_changed(self, pos):
         if not self.is_slider_pressed: self.slider.setValue(pos)
         self.lbl_curr_time.setText(self.fmt_time(pos))
@@ -618,7 +641,6 @@ class SodaPlayer(QMainWindow):
                 c = self.lyrics[idx]["txt"]
                 n = self.lyrics[idx+1]["txt"] if idx<len(self.lyrics)-1 else ""
                 self.desktop_lyric.set_lyrics(p, c, n)
-
     def slider_pressed(self): self.is_slider_pressed = True
     def slider_released(self):
         self.is_slider_pressed = False
