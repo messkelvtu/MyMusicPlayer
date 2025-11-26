@@ -83,7 +83,7 @@ def ms_to_str(ms):
     s = ms // 1000
     return f"{s//60:02}:{s%60:02}"
 
-# --- 1. 在线歌词搜索线程 ---
+# --- 1. 在线歌词搜索线程 (带时长) ---
 class LyricListSearchWorker(QThread):
     search_finished = pyqtSignal(list)
 
@@ -117,7 +117,7 @@ class LyricListSearchWorker(QThread):
             print(f"Search error: {e}")
             self.search_finished.emit([])
 
-# --- 2. 手动歌词搜索弹窗 ---
+# --- 2. 手动歌词搜索弹窗 (包含时长比对) ---
 class LyricSearchDialog(QDialog):
     def __init__(self, song_name, duration_ms=0, parent=None):
         super().__init__(parent)
@@ -144,7 +144,7 @@ class LyricSearchDialog(QDialog):
         layout.addWidget(self.table)
         
         if duration_ms > 0:
-            layout.addWidget(QLabel(f"当前本地歌曲时长: {ms_to_str(duration_ms)} (供参考)", styleSheet="color:#666"))
+            layout.addWidget(QLabel(f"当前本地歌曲时长: {ms_to_str(duration_ms)} (绿色为推荐匹配)", styleSheet="color:#666"))
         
         btn_bind = QPushButton("选中并绑定歌词")
         btn_bind.setStyleSheet("background-color:#1ECD97; color:white; font-weight:bold; padding:8px;")
@@ -164,10 +164,14 @@ class LyricSearchDialog(QDialog):
         for i, item in enumerate(results):
             self.table.setItem(i, 0, QTableWidgetItem(item['name']))
             self.table.setItem(i, 1, QTableWidgetItem(item['artist']))
+            
+            # 时长高亮：如果和本地相差在 3秒内，标绿
             t_item = QTableWidgetItem(item['duration_str'])
             if abs(item['duration'] - self.duration_ms) < 3000 and self.duration_ms > 0:
                 t_item.setForeground(QColor("#1ECD97"))
+                t_item.setBackground(QColor("#E8F5E9"))
                 t_item.setToolTip("时长匹配度极高")
+            
             self.table.setItem(i, 2, t_item)
             self.table.setItem(i, 3, QTableWidgetItem(str(item['id'])))
 
@@ -252,7 +256,7 @@ class BatchRenameDialog(QDialog):
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
         
-        # Tab 1
+        # Tab 1: 替换
         tab_replace = QWidget()
         l1 = QVBoxLayout(tab_replace)
         h1 = QHBoxLayout()
@@ -268,7 +272,7 @@ class BatchRenameDialog(QDialog):
         l1.addStretch()
         self.tabs.addTab(tab_replace, "文本替换")
         
-        # Tab 2
+        # Tab 2: 裁剪
         tab_trim = QWidget()
         l2 = QVBoxLayout(tab_trim)
         h2 = QHBoxLayout()
@@ -327,7 +331,7 @@ class BatchRenameDialog(QDialog):
         else:
             return "trim", (self.spin_head.value(), self.spin_tail.value()), self.selected_indices
 
-# --- 5. 桌面歌词 ---
+# --- 5. 桌面歌词 (带设置记忆) ---
 class DesktopLyricWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -415,7 +419,7 @@ class DesktopLyricWindow(QWidget):
         elif action == act_close:
             self.hide()
 
-# --- 6. 下载选项弹窗 ---
+# --- 6. 下载选项弹窗 (增加歌手专辑预设) ---
 class DownloadDialog(QDialog):
     def __init__(self, parent=None, current_p=1, collections=[]):
         super().__init__(parent)
@@ -479,7 +483,7 @@ class DownloadDialog(QDialog):
 # --- B站下载线程 ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
-    finished_signal = pyqtSignal(str, str)
+    finished_signal = pyqtSignal(str, str) # folder, info_json_str
     error_signal = pyqtSignal(str)
 
     def __init__(self, url, save_path, mode="single", start_p=1):
@@ -543,7 +547,7 @@ class SodaPlayer(QMainWindow):
         self.music_folder = ""
         self.current_collection = "" 
         self.collections = [] 
-        self.playlist = []
+        self.playlist = [] 
         self.history = []
         self.lyrics = []
         self.current_index = -1
@@ -714,6 +718,7 @@ class SodaPlayer(QMainWindow):
         r_layout.addWidget(bar)
         layout.addWidget(right_panel)
 
+    # --- 扫描逻辑 ---
     def full_scan(self):
         if not self.music_folder or not os.path.exists(self.music_folder): return
         self.collections = []
@@ -1139,19 +1144,13 @@ class SodaPlayer(QMainWindow):
                 if self.music_folder: self.full_scan()
             except:pass
         if os.path.exists(OFFSET_FILE):
-            try: 
-                with open(OFFSET_FILE,'r') as f: 
-                    self.saved_offsets=json.load(f)
+            try: with open(OFFSET_FILE,'r') as f: self.saved_offsets=json.load(f)
             except:pass
         if os.path.exists(METADATA_FILE):
-            try: 
-                with open(METADATA_FILE,'r') as f: 
-                    self.metadata=json.load(f)
+            try: with open(METADATA_FILE,'r') as f: self.metadata=json.load(f)
             except:pass
         if os.path.exists(HISTORY_FILE):
-            try: 
-                with open(HISTORY_FILE,'r') as f: 
-                    self.history=json.load(f)
+            try: with open(HISTORY_FILE,'r') as f: self.history=json.load(f)
             except:pass
 
     def save_config(self): 
@@ -1161,7 +1160,7 @@ class SodaPlayer(QMainWindow):
             "lyric_color": self.desktop_lyric.font_color.getRgb()[:3]
         }
         with open(CONFIG_FILE,'w') as f: json.dump(data,f)
-    def save_offsets(self): with open(OFFSET_FILE, 'w') as f: json.dump(self.saved_offsets, f)
+    def save_offsets(self): with open(OFFSET_FILE,'w') as f: json.dump(self.saved_offsets,f)
     def save_metadata(self): with open(METADATA_FILE,'w') as f: json.dump(self.metadata,f)
     def save_history(self): with open(HISTORY_FILE,'w') as f: json.dump(self.history,f)
 
@@ -1178,10 +1177,3 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     f = QFont("Microsoft YaHei", 10); app.setFont(f)
     w = SodaPlayer(); w.show(); sys.exit(app.exec_())
-
-
-
-
-
-
-
