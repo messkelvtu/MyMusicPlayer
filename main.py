@@ -21,7 +21,7 @@ except ImportError:
 
 CONFIG_FILE = "config.json"
 
-# --- 样式表 (保持清新汽水风) ---
+# --- 样式表 ---
 STYLESHEET = """
 QMainWindow { background-color: #FFFFFF; }
 QWidget { font-family: "SimSun", "宋体", serif; color: #333333; }
@@ -86,26 +86,22 @@ class BilibiliDownloader(QThread):
                 if len(filename) > 30: filename = filename[:30] + "..."
                 self.progress_signal.emit(f"⬇️ {p} : {filename}")
             elif d['status'] == 'finished':
-                self.progress_signal.emit("✅ 下载完成，处理中...")
+                self.progress_signal.emit("✅ 下载完成，准备下一个...")
 
         ydl_opts = {
-            # 强制下载 m4a (AAC编码)，这是Windows原生支持最好的音频格式
-            # 绝对不要下载 webm，因为 Windows 默认没有 webm 解码器
+            # 强制下载 m4a，确保 Windows 原生支持
             'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best', 
-            
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
-            'noplaylist': False, # 允许下载合集
+            'noplaylist': False,
             'ignoreerrors': True,
             'progress_hooks': [progress_hook],
             'quiet': True,
             'nocheckcertificate': True,
-            # 限制列表下载前50首，防止意外下载几千个视频
-            # 如果你需要更多，可以改成 '1-200'
-            'playlist_items': '1-50', 
+            'playlist_items': '1-100',
         }
 
         try:
-            self.progress_signal.emit("🔍 正在解析链接/合集...")
+            self.progress_signal.emit("🔍 正在解析...")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
             self.progress_signal.emit("🎉 所有任务已完成")
@@ -178,7 +174,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (播放修复版)")
+        self.setWindowTitle("汽水音乐 (稳定版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -400,11 +396,11 @@ class SodaPlayer(QMainWindow):
         self.playlist = []
         self.list_widget.clear()
         if not os.path.exists(self.music_folder): return
-        # 扫描 mp3 和 m4a (B站下载格式)
-        exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg')
+        # 支持 MP4
+        exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
         files = [x for x in os.listdir(self.music_folder) if x.lower().endswith(exts)]
         for f in files:
-            # 必须使用 abspath 绝对路径，否则 QMediaPlayer 可能找不到文件
+            # 使用绝对路径防止 Qt 找不到文件
             full_path = os.path.abspath(os.path.join(self.music_folder, f))
             self.playlist.append({"path": full_path, "name": f})
             self.list_widget.addItem(os.path.splitext(f)[0])
@@ -416,15 +412,17 @@ class SodaPlayer(QMainWindow):
         self.current_index = idx
         song = self.playlist[idx]
         
-        # 核心修复：使用 QUrl.fromLocalFile 处理绝对路径
-        url = QUrl.fromLocalFile(song["path"])
-        self.player.setMedia(QMediaContent(url))
-        self.player.setPlaybackRate(self.rate)
-        self.player.play()
-        
-        self.btn_play.setText("⏸")
-        self.list_widget.setCurrentRow(idx)
-        self.parse_lrc(os.path.splitext(song["path"])[0] + ".lrc")
+        try:
+            url = QUrl.fromLocalFile(song["path"])
+            self.player.setMedia(QMediaContent(url))
+            self.player.setPlaybackRate(self.rate)
+            self.player.play()
+            
+            self.btn_play.setText("⏸")
+            self.list_widget.setCurrentRow(idx)
+            self.parse_lrc(os.path.splitext(song["path"])[0] + ".lrc")
+        except Exception as e:
+            print(f"Play Error: {e}")
 
     def parse_lrc(self, path):
         self.lyrics = []
@@ -492,11 +490,11 @@ class SodaPlayer(QMainWindow):
             if self.mode == 1: self.player.play()
             else: self.play_next()
 
-    def handle_player_error(self):
-        # 详细错误提示
+    # --- 关键修复：增加错误处理参数，防止信号触发时闪退 ---
+    def handle_player_error(self, error_code=None):
         err_msg = self.player.errorString()
         print(f"Playback Error: {err_msg}")
-        # 自动切歌
+        # 出错时自动尝试切下一首，防止卡死
         if self.playlist:
             self.play_next()
 
