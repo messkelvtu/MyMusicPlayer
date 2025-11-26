@@ -14,7 +14,7 @@ from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QSize, QCoreApplication,
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
-# --- 强制设置环境变量 ---
+# --- 核心修复：强制使用 Windows 原生解码器 (必须放在最前面) ---
 os.environ["QT_MULTIMEDIA_PREFERRED_PLUGINS"] = "windowsmediafoundation"
 
 try:
@@ -112,7 +112,7 @@ class BilibiliDownloader(QThread):
         super().__init__()
         self.url = url
         self.folder = folder
-        self.mode = mode # 'single' or 'playlist'
+        self.mode = mode 
 
     def run(self):
         if not yt_dlp:
@@ -124,38 +124,34 @@ class BilibiliDownloader(QThread):
                 p = d.get('_percent_str', '0%')
                 raw_name = d.get('filename', '未知')
                 filename = os.path.basename(raw_name)
-                if len(filename) > 30: filename = filename[:30] + "..."
+                if len(filename) > 25: 
+                    filename = filename[:25] + "..."
                 self.progress_signal.emit(f"⬇️ {p} : {filename}")
             elif d['status'] == 'finished':
                 self.progress_signal.emit("✅ 下载完成，准备下一个...")
 
-        # 智能识别分P (p=34)
+        # 智能识别分P
         start_index = 1
         match = re.search(r'[?&]p=(\d+)', self.url)
         if match:
             start_index = int(match.group(1))
         
-        playlist_range = f"{start_index}-{start_index + 99}" # 默认下载当前P及之后100集
+        playlist_range = f"{start_index}-{start_index + 99}" 
 
         ydl_opts = {
-            # 强制 MP4/M4A
+            # 强制 m4a/mp4，兼容性最好
             'format': 'bestaudio[ext=m4a]/best[ext=mp4]/best', 
-            # 关键：使用 sanitize_filename 处理后的标题，保留中文但去除特殊符号
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
             
-            # 模式控制
             'noplaylist': True if self.mode == 'single' else False,
             
             'ignoreerrors': True,
             'progress_hooks': [progress_hook],
             'quiet': True,
             'nocheckcertificate': True,
-            
-            # 这里的 restrictfilenames 改为 False，保留中文标题
-            'restrictfilenames': False, 
+            'restrictfilenames': False, # 保留中文文件名
         }
 
-        # 如果是列表模式，设置下载范围
         if self.mode == 'playlist':
             ydl_opts['playlist_items'] = playlist_range
             self.progress_signal.emit(f"模式：合集下载 (P{start_index} - P{start_index+99})")
@@ -164,9 +160,6 @@ class BilibiliDownloader(QThread):
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # 手动挂载文件名处理钩子（yt-dlp 内部不支持直接传函数给 outtmpl）
-                # 但我们可以通过 prepare_filename 处理，或者依赖系统自动处理非法字符
-                # 这里我们信任 Windows 系统对非法字符的宽容度，或者 yt-dlp 的默认 sanitize
                 ydl.download([self.url])
             
             self.progress_signal.emit("🎉 任务全部结束")
@@ -292,7 +285,6 @@ class SodaPlayer(QMainWindow):
         self.btn_bili.clicked.connect(self.download_from_bilibili)
         side_layout.addWidget(self.btn_bili)
 
-        # 刷新按钮
         btn_refresh = QPushButton("🔄  刷新列表")
         btn_refresh.setProperty("NavBtn", True)
         btn_refresh.clicked.connect(self.scan_music)
@@ -416,32 +408,26 @@ class SodaPlayer(QMainWindow):
         old = song["path"]
         name, ok = QInputDialog.getText(self, "重命名", "新歌名:", text=os.path.splitext(song["name"])[0])
         if ok and name:
-            # 简单净化文件名
             name = sanitize_filename(name)
             new_name = name + os.path.splitext(song["name"])[1]
             new_path = os.path.join(os.path.dirname(old), new_name)
             try:
                 if self.current_index == idx: self.player.stop()
                 os.rename(old, new_path)
-                # 尝试改同名歌词
                 old_lrc = os.path.splitext(old)[0] + ".lrc"
                 if os.path.exists(old_lrc): 
                     os.rename(old_lrc, os.path.join(os.path.dirname(old), name + ".lrc"))
                 self.scan_music()
             except Exception as e: QMessageBox.warning(self, "错误", str(e))
 
-    # --- 新功能：绑定歌词并整理文件 ---
     def bind_lyrics(self, idx):
         song = self.playlist[idx]
         song_path = song["path"]
         song_name = os.path.splitext(song["name"])[0]
         
-        # 1. 选择歌词文件
         lrc_file, _ = QFileDialog.getOpenFileName(self, "选择歌词文件 (将复制)", "", "LRC/TXT (*.lrc *.txt)")
         if not lrc_file: return
 
-        # 2. 建立专属文件夹
-        # 文件夹名 = 歌曲名_Data (避免冲突)
         new_folder_name = f"{song_name}"
         new_folder_path = os.path.join(self.music_folder, new_folder_name)
         
@@ -449,18 +435,16 @@ class SodaPlayer(QMainWindow):
             if not os.path.exists(new_folder_path):
                 os.makedirs(new_folder_path)
             
-            # 3. 移动歌曲
             new_song_path = os.path.join(new_folder_path, song["name"])
             if self.current_index == idx: self.player.stop()
             
             shutil.move(song_path, new_song_path)
             
-            # 4. 复制并重命名歌词
             new_lrc_path = os.path.join(new_folder_path, song_name + ".lrc")
             shutil.copy(lrc_file, new_lrc_path)
             
-            QMessageBox.information(self, "成功", f"歌曲和歌词已整理到文件夹:\n{new_folder_name}")
-            self.scan_music() # 刷新
+            QMessageBox.information(self, "成功", f"整理完成")
+            self.scan_music() 
             
         except Exception as e:
             QMessageBox.warning(self, "操作失败", str(e))
@@ -480,7 +464,6 @@ class SodaPlayer(QMainWindow):
         if not self.music_folder: return QMessageBox.warning(self, "提示", "请先设置文件夹")
         u, ok = QInputDialog.getText(self, "B站下载", "粘贴链接 (支持BV号/合集):")
         if ok and u:
-            # 弹出模式选择对话框
             dialog = DownloadDialog(self)
             if dialog.exec_() == QDialog.Accepted:
                 mode = dialog.get_mode()
@@ -508,14 +491,11 @@ class SodaPlayer(QMainWindow):
         if not os.path.exists(self.music_folder): return
         exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
         
-        # 递归扫描子文件夹 (支持整理后的文件夹)
         for root, dirs, files in os.walk(self.music_folder):
             for f in files:
                 if f.lower().endswith(exts):
                     full_path = os.path.abspath(os.path.join(root, f))
                     self.playlist.append({"path": full_path, "name": f})
-                    
-                    # 列表显示优化: 去掉后缀
                     self.list_widget.addItem(os.path.splitext(f)[0])
 
     def play_selected(self, item): self.play_index(self.list_widget.row(item))
@@ -547,11 +527,16 @@ class SodaPlayer(QMainWindow):
             return
         
         lines = []
+        # --- 彻底修复语法：全部换行 ---
         try:
-            with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
-        except:
-            try: with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
-            except: return
+            with open(path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except Exception:
+            try:
+                with open(path, 'r', encoding='gbk') as f:
+                    lines = f.readlines()
+            except Exception:
+                return
 
         import re
         p = re.compile(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)')
