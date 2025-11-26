@@ -4,19 +4,19 @@ import json
 import shutil
 import random
 import threading
+import re
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QListWidget, 
                              QFileDialog, QFrame, QAbstractItemView,
                              QGraphicsDropShadowEffect, QInputDialog, QMessageBox, 
                              QFontDialog, QMenu, QAction, QSlider)
-from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QSize, QCoreApplication, QLibraryInfo
+from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QSize, QCoreApplication, QTimer
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
 # --- 核心修复：强制设置环境变量，确保使用 Windows 原生解码器 ---
 os.environ["QT_MULTIMEDIA_PREFERRED_PLUGINS"] = "windowsmediafoundation"
 
-# 引入 yt_dlp
 try:
     import yt_dlp
 except ImportError:
@@ -67,10 +67,17 @@ QSlider::sub-page:horizontal {
 }
 """
 
+# --- 自定义日志记录器 (捕捉 yt-dlp 内部错误) ---
+class MyLogger:
+    def debug(self, msg): pass
+    def warning(self, msg): pass
+    def error(self, msg): print(msg)
+
 # --- B站下载线程 ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
+    error_signal = pyqtSignal(str)
 
     def __init__(self, url, folder):
         super().__init__()
@@ -79,37 +86,44 @@ class BilibiliDownloader(QThread):
 
     def run(self):
         if not yt_dlp:
-            self.progress_signal.emit("错误：缺少 yt-dlp 组件")
+            self.error_signal.emit("错误：缺少 yt-dlp 组件")
             return
 
         def progress_hook(d):
             if d['status'] == 'downloading':
-                p = d.get('_percent_str', '')
-                filename = os.path.basename(d.get('filename', '未知'))
-                if len(filename) > 30: filename = filename[:30] + "..."
+                p = d.get('_percent_str', '0%')
+                # 去除文件名中的非法字符
+                raw_name = d.get('filename', '未知')
+                filename = os.path.basename(raw_name)
+                if len(filename) > 25: filename = filename[:25] + "..."
                 self.progress_signal.emit(f"⬇️ {p} : {filename}")
             elif d['status'] == 'finished':
-                self.progress_signal.emit("✅ 下载完成，处理中...")
+                self.progress_signal.emit("✅ 下载完成，正在转换...")
 
+        # 核心修复：B站配置
+        # 'bestaudio' 确保只下载音频流，不需要 FFmpeg 合并视频
+        # 'm4a' 格式是 Windows 最兼容的
         ydl_opts = {
-            'format': 'best[ext=mp4]/best', 
+            'format': 'bestaudio[ext=m4a]/bestaudio/best', 
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
-            'noplaylist': False, 
+            'noplaylist': False, # 允许下载合集
             'ignoreerrors': True,
             'progress_hooks': [progress_hook],
+            'logger': MyLogger(),
             'quiet': True,
             'nocheckcertificate': True,
-            'playlist_items': '1-100',
+            'restrictfilenames': True, # 自动处理非法字符文件名
+            'playlist_items': '1-100', 
         }
 
         try:
-            self.progress_signal.emit("🔍 正在解析...")
+            self.progress_signal.emit("🔍 正在解析链接...")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
-            self.progress_signal.emit("🎉 所有任务已完成")
+            self.progress_signal.emit("🎉 任务全部结束")
             self.finished_signal.emit()
         except Exception as e:
-            self.progress_signal.emit(f"❌ 错误: {str(e)}")
+            self.error_signal.emit(f"❌ 下载出错: {str(e)}")
 
 # --- 桌面歌词 ---
 class DesktopLyricWindow(QWidget):
@@ -176,7 +190,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (MP4稳定版)")
+        self.setWindowTitle("汽水音乐 (B站专版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -384,11 +398,15 @@ class SodaPlayer(QMainWindow):
             self.dl = BilibiliDownloader(u, self.music_folder)
             self.dl.progress_signal.connect(lambda m: self.lbl_curr_time.setText(m))
             self.dl.finished_signal.connect(self.on_dl_finish)
+            self.dl.error_signal.connect(self.on_dl_error)
             self.dl.start()
     
     def on_dl_finish(self):
         self.scan_music()
-        QMessageBox.information(self, "完成", "所有任务结束")
+        QMessageBox.information(self, "完成", "下载结束")
+    
+    def on_dl_error(self, msg):
+        QMessageBox.warning(self, "下载失败", msg)
 
     def select_folder(self):
         f = QFileDialog.getExistingDirectory(self, "选择目录")
@@ -398,10 +416,11 @@ class SodaPlayer(QMainWindow):
         self.playlist = []
         self.list_widget.clear()
         if not os.path.exists(self.music_folder): return
-        exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
+        # 支持音频和视频文件
+        exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4', '.webm')
         files = [x for x in os.listdir(self.music_folder) if x.lower().endswith(exts)]
         for f in files:
-            # 使用绝对路径
+            # 绝对路径修复
             full_path = os.path.abspath(os.path.join(self.music_folder, f))
             self.playlist.append({"path": full_path, "name": f})
             self.list_widget.addItem(os.path.splitext(f)[0])
@@ -435,16 +454,11 @@ class SodaPlayer(QMainWindow):
             return
         
         lines = []
-        # --- 语法完全修复 ---
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+            with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
         except:
-            try:
-                with open(path, 'r', encoding='gbk') as f:
-                    lines = f.readlines()
-            except:
-                return
+            try: with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
+            except: return
 
         import re
         p = re.compile(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)')
@@ -497,7 +511,6 @@ class SodaPlayer(QMainWindow):
             else: self.play_next()
 
     def handle_player_error(self):
-        # 错误处理
         print(f"Error: {self.player.errorString()}")
         QTimer.singleShot(1000, self.play_next)
 
@@ -546,7 +559,6 @@ class SodaPlayer(QMainWindow):
         with open(CONFIG_FILE,'w') as f: json.dump({"folder":self.music_folder},f)
 
 if __name__ == "__main__":
-    # 核心修复：确保插件路径被正确识别
     if getattr(sys, 'frozen', False):
         app_path = sys._MEIPASS
         os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = os.path.join(app_path, 'PyQt5', 'Qt', 'plugins')
