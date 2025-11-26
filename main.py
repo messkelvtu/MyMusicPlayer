@@ -475,242 +475,211 @@ def ms_to_str(ms):
     s = ms // 1000
     return f"{s//60:02}:{s%60:02}"
 
-# --- 现代化歌词搜索弹窗 ---
-class ModernLyricSearchDialog(QDialog):
-    def __init__(self, song_name, artist="", duration_ms=0, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("在线歌词搜索")
-        self.resize(900, 600)
-        self.setStyleSheet(STYLESHEET)
-        
-        self.result_id = None
-        self.duration_ms = duration_ms 
-        
-        # 添加阴影效果
-        self.setWindowFlags(self.windowFlags() | Qt.FramelessWindowHint)
+# --- 在线歌词搜索线程 ---
+class LyricListSearchWorker(QThread):
+    search_finished = pyqtSignal(list)
+
+    def __init__(self, keyword):
+        super().__init__()
+        self.keyword = keyword
+
+    def run(self):
+        try:
+            url = "http://music.163.com/api/search/get/web?csrf_token="
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            data = urllib.parse.urlencode({'s': self.keyword, 'type': 1, 'offset': 0, 'total': 'true', 'limit': 20}).encode('utf-8')
+            req = urllib.request.Request(url, data=data, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as f:
+                res = json.loads(f.read().decode('utf-8'))
+            
+            results = []
+            if res.get('result') and res['result'].get('songs'):
+                for s in res['result']['songs']:
+                    artists = [art['name'] for art in s.get('artists', [])]
+                    artist = ' / '.join(artists) if artists else "未知"
+                    album = s.get('album', {}).get('name', '未知专辑')
+                    duration = s.get('duration', 0)
+                    results.append({
+                        'name': s['name'],
+                        'artist': artist,
+                        'album': album,
+                        'id': s['id'],
+                        'duration': duration,
+                        'duration_str': ms_to_str(duration)
+                    })
+            self.search_finished.emit(results)
+        except Exception as e:
+            print(f"搜索错误: {e}")
+            self.search_finished.emit([])
+
+# --- 桌面歌词窗口 ---
+class DesktopLyricWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.resize(1200, 180)
         
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0,0,0,0)
         
-        # 标题栏
-        title_layout = QHBoxLayout()
-        title_label = QLabel("🔍 搜索歌词")
-        title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #333333;")
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
+        self.font_color = QColor(59, 130, 246)  # 蓝色主题
+        self.current_font = QFont("Microsoft YaHei", 36, QFont.Bold)
         
-        close_btn = QPushButton("×")
-        close_btn.setFixedSize(30, 30)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-                font-size: 20px;
-                color: #999999;
-                border-radius: 15px;
-            }
-            QPushButton:hover {
-                background: #f0f0f0;
-                color: #333333;
-            }
-        """)
-        close_btn.clicked.connect(self.reject)
-        title_layout.addWidget(close_btn)
-        layout.addLayout(title_layout)
+        self.labels = []
+        for i in range(3):
+            lbl = QLabel("")
+            lbl.setAlignment(Qt.AlignCenter)
+            self.labels.append(lbl)
+            self.layout.addWidget(lbl)
         
-        # 搜索框区域
-        search_container = QWidget()
-        search_container.setStyleSheet("background: #fafbfc; border-radius: 8px; padding: 15px;")
-        search_layout = QHBoxLayout(search_container)
-        
-        self.input_song = QLineEdit(song_name)
-        self.input_song.setPlaceholderText("请输入歌曲名")
-        self.input_song.setStyleSheet("font-size: 14px; padding: 12px;")
-        
-        self.input_artist = QLineEdit(artist)
-        self.input_artist.setPlaceholderText("歌手名（可选）")
-        self.input_artist.setStyleSheet("font-size: 14px; padding: 12px;")
-        
-        btn_search = QPushButton("搜索歌词")
-        btn_search.setStyleSheet("""
-            QPushButton {
-                background: #31c27c;
-                color: white;
-                font-weight: bold;
-                padding: 12px 24px;
-                border-radius: 6px;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background: #2aad6f;
-            }
-        """)
-        btn_search.clicked.connect(self.start_search)
-        
-        search_layout.addWidget(QLabel("歌曲:"))
-        search_layout.addWidget(self.input_song, 2)
-        search_layout.addWidget(QLabel("歌手:"))
-        search_layout.addWidget(self.input_artist, 1)
-        search_layout.addWidget(btn_search)
-        layout.addWidget(search_container)
-        
-        # 结果表格
-        table_container = QWidget()
-        table_container.setStyleSheet("background: white; border-radius: 8px;")
-        table_layout = QVBoxLayout(table_container)
-        
-        self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["歌名", "歌手", "专辑", "时长", "匹配度"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setAlternatingRowColors(True)
-        self.table.itemDoubleClicked.connect(self.on_select)
-        table_layout.addWidget(self.table)
-        
-        layout.addWidget(table_container, 1)
-        
-        # 状态信息
-        if duration_ms > 0:
-            info_label = QLabel(f"🎵 当前歌曲时长: {ms_to_str(duration_ms)} - 选择时长相近的结果匹配更准确")
-            info_label.setStyleSheet("color: #666666; font-size: 12px; padding: 10px; background: #f8f9fa; border-radius: 6px;")
-            layout.addWidget(info_label)
-        
-        # 按钮区域
-        btn_layout = QHBoxLayout()
-        btn_bind = QPushButton("💾 绑定选中歌词")
-        btn_bind.setStyleSheet("""
-            QPushButton {
-                background: #31c27c;
-                color: white;
-                font-weight: bold;
-                padding: 12px 30px;
-                border-radius: 6px;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background: #2aad6f;
-            }
-        """)
-        btn_bind.clicked.connect(self.confirm_bind)
-        btn_cancel = QPushButton("取消")
-        btn_cancel.setStyleSheet("padding: 12px 30px;")
-        btn_cancel.clicked.connect(self.reject)
-        
-        btn_layout.addStretch()
-        btn_layout.addWidget(btn_bind)
-        btn_layout.addWidget(btn_cancel)
-        layout.addLayout(btn_layout)
+        self.update_styles()
+        self.locked = False
 
-    def start_search(self):
-        song = self.input_song.text().strip()
-        artist = self.input_artist.text().strip()
-        
-        if not song:
-            self.show_message("提示", "请输入歌曲名")
-            return
-            
-        keyword = f"{song} {artist}" if artist else song
-        self.table.setRowCount(0)
-        
-        # 显示加载状态
-        loading_item = QTableWidgetItem("🔍 搜索中...")
-        loading_item.setTextAlignment(Qt.AlignCenter)
-        self.table.setRowCount(1)
-        self.table.setItem(0, 0, loading_item)
-        self.table.setSpan(0, 0, 1, 5)
-        
-        self.worker = LyricListSearchWorker(keyword)
-        self.worker.search_finished.connect(self.on_search_done)
-        self.worker.start()
-
-    def on_search_done(self, results):
-        self.table.setRowCount(len(results))
-        
-        for i, item in enumerate(results):
-            self.table.setItem(i, 0, QTableWidgetItem(item['name']))
-            self.table.setItem(i, 1, QTableWidgetItem(item['artist']))
-            self.table.setItem(i, 2, QTableWidgetItem(item['album']))
-            self.table.setItem(i, 3, QTableWidgetItem(item['duration_str']))
-            
-            # 计算匹配度
-            match_score = self.calculate_match_score(item)
-            match_item = QTableWidgetItem(f"{match_score}%")
-            match_item.setTextAlignment(Qt.AlignCenter)
-            
-            # 根据匹配度设置颜色
-            if match_score >= 80:
-                match_item.setForeground(QColor("#31c27c"))
-            elif match_score >= 60:
-                match_item.setForeground(QColor("#ff6b35"))
+    def update_styles(self):
+        base_size = self.current_font.pointSize()
+        shadow_color = QColor(0, 0, 0, 200)
+        for i, lbl in enumerate(self.labels):
+            effect = QGraphicsDropShadowEffect()
+            effect.setBlurRadius(8)
+            effect.setColor(shadow_color)
+            effect.setOffset(1, 1)
+            lbl.setGraphicsEffect(effect)
+            f = QFont(self.current_font)
+            color_css = self.font_color.name()
+            if i == 1:
+                f.setPointSize(base_size)
+                lbl.setStyleSheet(f"color: {color_css};")
             else:
-                match_item.setForeground(QColor("#999999"))
-                
-            self.table.setItem(i, 4, match_item)
-            self.table.item(i, 0).setData(Qt.UserRole, item['id'])
+                f.setPointSize(int(base_size * 0.6))
+                r,g,b = self.font_color.red(), self.font_color.green(), self.font_color.blue()
+                lbl.setStyleSheet(f"color: rgba({r}, {g}, {b}, 160);")
+            lbl.setFont(f)
 
-    def calculate_match_score(self, item):
-        score = 0
-        if self.duration_ms > 0:
-            duration_diff = abs(item['duration'] - self.duration_ms)
-            if duration_diff < 2000:
-                score += 40
-            elif duration_diff < 5000:
-                score += 20
-            elif duration_diff < 10000:
-                score += 10
-        
-        target_song = self.input_song.text().lower()
-        result_song = item['name'].lower()
-        if target_song in result_song or result_song in target_song:
-            score += 40
-        elif any(word in result_song for word in target_song.split()):
-            score += 25
-        
-        target_artist = self.input_artist.text().lower()
-        if target_artist:
-            result_artist = item['artist'].lower()
-            if target_artist in result_artist:
-                score += 20
-            elif any(word in result_artist for word in target_artist.split()):
-                score += 10
-        
-        return min(score, 100)
-
-    def on_select(self, item):
-        self.confirm_bind()
-
-    def confirm_bind(self):
-        row = self.table.currentRow()
-        if row >= 0:
-            self.result_id = self.table.item(row, 0).data(Qt.UserRole)
-            if self.result_id:
-                self.accept()
-            else:
-                self.show_message("错误", "未找到有效的歌曲ID")
-        else:
-            self.show_message("提示", "请先选择一首歌曲")
-
-    def show_message(self, title, message):
-        """显示现代化消息框"""
-        msg = QMessageBox(self)
-        msg.setWindowTitle(title)
-        msg.setText(message)
-        msg.setStyleSheet(STYLESHEET)
-        msg.exec_()
+    def set_lyrics(self, p, c, n):
+        self.labels[0].setText(p)
+        self.labels[1].setText(c)
+        self.labels[2].setText(n)
 
     def mousePressEvent(self, event):
-        """实现窗口拖动"""
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.LeftButton and not self.locked:
             self.drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-            event.accept()
+        elif event.button() == Qt.RightButton:
+            self.show_menu(event.globalPos())
 
     def mouseMoveEvent(self, event):
-        """实现窗口拖动"""
-        if event.buttons() == Qt.LeftButton:
+        if event.buttons() == Qt.LeftButton and not self.locked:
             self.move(event.globalPos() - self.drag_pos)
-            event.accept()
+
+    def wheelEvent(self, event):
+        d = event.angleDelta().y()
+        s = self.current_font.pointSize()
+        self.current_font.setPointSize(min(120, s+2) if d>0 else max(15, s-2))
+        self.update_styles()
+
+    def show_menu(self, pos):
+        menu = QMenu()
+        act_color = menu.addAction("🎨 修改颜色")
+        act_font = menu.addAction("🅰️ 修改字体")
+        lock_text = "🔒 解锁位置" if self.locked else "🔒 锁定位置"
+        act_lock = menu.addAction(lock_text)
+        act_close = menu.addAction("❌ 隐藏歌词")
+        action = menu.exec_(pos)
+        if action == act_color:
+            c = QColorDialog.getColor(self.font_color, self)
+            if c.isValid():
+                self.font_color = c
+                self.update_styles()
+        elif action == act_font:
+            f, ok = QFontDialog.getFont(self.current_font, self)
+            if ok:
+                self.current_font = f
+                self.update_styles()
+        elif action == act_lock:
+            self.locked = not self.locked
+        elif action == act_close:
+            self.hide()
+
+# --- B站下载线程 ---
+class BilibiliDownloader(QThread):
+    progress_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(str, list)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, url, save_path, mode="single", start_p=1, metadata=None):
+        super().__init__()
+        self.url = url
+        self.save_path = save_path
+        self.mode = mode
+        self.start_p = start_p
+        self.metadata = metadata or {}
+
+    def run(self):
+        if not yt_dlp:
+            self.error_signal.emit("错误：缺少 yt-dlp 库")
+            return
+            
+        if not os.path.exists(self.save_path):
+            try:
+                os.makedirs(self.save_path)
+            except Exception as e:
+                self.error_signal.emit(f"无法创建文件夹: {e}")
+                return
+
+        def progress_hook(d):
+            if d['status'] == 'downloading':
+                p = d.get('_percent_str', '0%').strip()
+                fn = os.path.basename(d.get('filename', '未知'))
+                if len(fn) > 20:
+                    fn = fn[:20] + "..."
+                self.progress_signal.emit(f"⬇️ {p} : {fn}")
+            elif d['status'] == 'finished':
+                self.progress_signal.emit("✅ 下载完成，处理中...")
+
+        items_range = str(self.start_p) if self.mode == 'single' else f"{self.start_p}:"
+        ydl_opts = {
+            'format': 'bestaudio[ext=m4a]/bestaudio/best[height<=720]',
+            'outtmpl': os.path.join(self.save_path, '%(title)s.%(ext)s'),
+            'overwrites': True,
+            'noplaylist': self.mode == 'single',
+            'playlist_items': items_range,
+            'ignoreerrors': True,
+            'progress_hooks': [progress_hook],
+            'quiet': False,
+            'nocheckcertificate': True,
+            'restrictfilenames': False,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'm4a',
+                'preferredquality': '192',
+            }],
+        }
+        
+        try:
+            self.progress_signal.emit("🔍 开始解析视频信息...")
+            downloaded_files = []
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # 获取视频信息
+                info = ydl.extract_info(self.url, download=False)
+                
+                if self.mode == 'playlist' and 'entries' in info:
+                    total = len(info['entries'])
+                    self.progress_signal.emit(f"📺 发现 {total} 个视频，开始下载...")
+                
+                # 开始下载
+                ydl.download([self.url])
+                
+                # 获取下载的文件列表
+                for f in os.listdir(self.save_path):
+                    if f.endswith(('.m4a', '.mp3', '.mp4')):
+                        downloaded_files.append(f)
+                        
+            self.progress_signal.emit("🎉 所有任务完成")
+            self.finished_signal.emit(self.save_path, downloaded_files)
+            
+        except Exception as e:
+            self.error_signal.emit(f"下载失败: {str(e)}")
 
 # --- 增强版智能重命名解析器 ---
 class EnhancedSmartNamingParser:
@@ -1291,9 +1260,6 @@ class ModernBatchRenameDialog(QDialog):
             self.move(event.globalPos() - self.drag_pos)
             event.accept()
 
-# --- 由于篇幅限制，其他类（LyricListSearchWorker, DesktopLyricWindow, BilibiliDownloader）保持不变 ---
-# 在实际代码中，这些类也应该应用现代化的样式改进
-
 # --- 主程序现代化改进 ---
 class ModernSodaPlayer(QMainWindow):
     def __init__(self):
@@ -1678,6 +1644,345 @@ class ModernSodaPlayer(QMainWindow):
         
         layout.addWidget(right_panel)
 
+    # === 播放器控制方法 ===
+    def on_volume_changed(self, value):
+        """音量改变"""
+        self.volume = value
+        self.player.setVolume(value)
+        self.lbl_volume.setText(f"{value}%")
+
+    def on_position_changed(self, pos):
+        """播放位置改变"""
+        if not self.is_slider_pressed:
+            self.slider.setValue(pos)
+            
+        self.lbl_curr_time.setText(ms_to_str(pos))
+        
+        # 计算带偏移的当前时间
+        current_sec = pos / 1000 + self.offset
+        
+        # 更新歌词显示
+        if self.lyrics:
+            current_lyric_index = -1
+            
+            # 找到当前应该显示的歌词
+            for i, lyric in enumerate(self.lyrics):
+                if current_sec >= lyric["t"]:
+                    current_lyric_index = i
+                else:
+                    break
+            
+            if current_lyric_index >= 0:
+                # 确保索引在范围内
+                if current_lyric_index < self.panel_lyric.count():
+                    self.panel_lyric.setCurrentRow(current_lyric_index)
+                    
+                    # 平滑滚动到当前歌词
+                    self.panel_lyric.scrollToItem(
+                        self.panel_lyric.item(current_lyric_index),
+                        QAbstractItemView.PositionAtCenter
+                    )
+                
+                # 更新桌面歌词
+                prev_text = self.lyrics[current_lyric_index - 1]["txt"] if current_lyric_index > 0 else ""
+                current_text = self.lyrics[current_lyric_index]["txt"]
+                next_text = self.lyrics[current_lyric_index + 1]["txt"] if current_lyric_index < len(self.lyrics) - 1 else ""
+                
+                self.desktop_lyric.set_lyrics(prev_text, current_text, next_text)
+
+    def on_duration_changed(self, duration):
+        """歌曲时长改变"""
+        self.slider.setRange(0, duration)
+        self.lbl_total_time.setText(ms_to_str(duration))
+        
+        # 更新表格中的时长显示
+        if self.current_index >= 0:
+            self.table.setItem(self.current_index, 3, QTableWidgetItem(ms_to_str(duration)))
+            self.playlist[self.current_index]["duration"] = ms_to_str(duration)
+
+    def on_state_changed(self, state):
+        """播放状态改变"""
+        self.btn_play.setText("⏸" if state == QMediaPlayer.PlayingState else "▶")
+
+    def on_media_status_changed(self, status):
+        """媒体状态改变"""
+        if status == QMediaPlayer.EndOfMedia:
+            if self.mode == 1:  # 单曲循环
+                self.player.play()
+            else:
+                self.play_next()
+
+    def handle_player_error(self):
+        """处理播放器错误"""
+        error_msg = self.player.errorString()
+        if error_msg:
+            print(f"播放器错误: {error_msg}")
+            self.show_modern_message("播放错误", f"无法播放当前文件: {error_msg}")
+            QTimer.singleShot(1000, self.play_next)
+
+    def slider_pressed(self):
+        """进度条按下"""
+        self.is_slider_pressed = True
+
+    def slider_released(self):
+        """进度条释放"""
+        self.is_slider_pressed = False
+        self.player.setPosition(self.slider.value())
+
+    def slider_moved(self, value):
+        """进度条移动"""
+        if self.is_slider_pressed:
+            self.lbl_curr_time.setText(ms_to_str(value))
+
+    # === 播放控制方法 ===
+    def toggle_play(self):
+        """切换播放/暂停"""
+        if self.player.state() == QMediaPlayer.PlayingState:
+            self.player.pause()
+            self.btn_play.setText("▶")
+        else:
+            self.player.play()
+            self.btn_play.setText("⏸")
+
+    def toggle_mode(self):
+        """切换播放模式"""
+        self.mode = (self.mode + 1) % 3
+        modes = ["🔁 顺序", "🔂 单曲", "🔀 随机"]
+        self.btn_mode.setText(modes[self.mode])
+
+    def toggle_rate(self):
+        """切换播放速度"""
+        rates = [1.0, 1.25, 1.5, 2.0, 0.5]
+        try:
+            current_index = rates.index(self.rate)
+        except ValueError:
+            current_index = 0
+            
+        self.rate = rates[(current_index + 1) % len(rates)]
+        self.player.setPlaybackRate(self.rate)
+        self.btn_rate.setText(f"{self.rate}x")
+
+    def play_next(self):
+        """播放下一首"""
+        if not self.playlist:
+            return
+            
+        if self.mode == 2:  # 随机模式
+            next_index = random.randint(0, len(self.playlist) - 1)
+        else:  # 顺序模式
+            next_index = (self.current_index + 1) % len(self.playlist)
+            
+        self.play_index(next_index)
+
+    def play_prev(self):
+        """播放上一首"""
+        if not self.playlist:
+            return
+            
+        if self.mode == 2:  # 随机模式
+            prev_index = random.randint(0, len(self.playlist) - 1)
+        else:  # 顺序模式
+            prev_index = (self.current_index - 1) % len(self.playlist)
+            
+        self.play_index(prev_index)
+
+    def adjust_offset(self, value):
+        """调整歌词偏移"""
+        self.offset += value
+        self.update_offset_label()
+        if self.current_index >= 0:
+            song_name = self.playlist[self.current_index]["name"]
+            self.saved_offsets[song_name] = self.offset
+            self.save_offsets()
+
+    def update_offset_label(self):
+        """更新偏移量显示"""
+        sign = "+" if self.offset >= 0 else ""
+        self.lbl_offset.setText(f"偏移: {sign}{self.offset:.1f}s")
+
+    # === 文件管理方法 ===
+    def search_songs(self, text):
+        """搜索歌曲"""
+        if not text.strip():
+            if hasattr(self, '_original_playlist'):
+                self.playlist = self._original_playlist.copy()
+                self.refresh_table()
+            return
+            
+        if not hasattr(self, '_original_playlist'):
+            self._original_playlist = self.playlist.copy()
+            
+        search_text = text.lower()
+        filtered_playlist = []
+        
+        for song in self._original_playlist:
+            song_name = os.path.splitext(song["name"])[0].lower()
+            artist = song.get("artist", "").lower()
+            album = song.get("album", "").lower()
+            
+            if (search_text in song_name or 
+                search_text in artist or 
+                search_text in album):
+                filtered_playlist.append(song)
+                
+        self.playlist = filtered_playlist
+        self.refresh_table()
+
+    def refresh_table(self):
+        """刷新表格显示"""
+        self.table.setRowCount(len(self.playlist))
+        for row, song in enumerate(self.playlist):
+            self.table.setItem(row, 0, QTableWidgetItem(os.path.splitext(song["name"])[0]))
+            self.table.setItem(row, 1, QTableWidgetItem(song.get("artist", "未知")))
+            self.table.setItem(row, 2, QTableWidgetItem(song.get("album", "未知")))
+            self.table.setItem(row, 3, QTableWidgetItem(song.get("duration", "-")))
+
+    def full_scan(self):
+        """扫描音乐文件夹"""
+        if not self.music_folder or not os.path.exists(self.music_folder):
+            return
+            
+        self.collections = []
+        exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
+        
+        # 扫描合集文件夹
+        for item in os.listdir(self.music_folder):
+            full_path = os.path.join(self.music_folder, item)
+            if os.path.isdir(full_path):
+                # 检查是否是合集文件夹（包含多个音乐文件）
+                files = [x for x in os.listdir(full_path) if x.lower().endswith(exts)]
+                if len(files) > 1:  # 包含多个音乐文件的文件夹才显示为合集
+                    self.collections.append(item)
+        
+        # 更新导航列表
+        self.nav_list.clear()
+        self.nav_list.addItem("💿 全部音乐")
+        self.nav_list.addItem("🕒 最近播放")
+        for c in self.collections:
+            self.nav_list.addItem(f"📁 {c}")
+        
+        # 加载当前视图
+        if self.current_collection == "HISTORY":
+            self.load_history_view()
+        elif not self.current_collection or self.current_collection not in self.collections:
+            self.current_collection = ""
+            self.load_songs_for_collection()
+        else:
+            self.load_songs_for_collection()
+
+    def switch_collection(self, item):
+        """切换合集"""
+        text = item.text()
+        if "全部音乐" in text:
+            self.current_collection = ""
+            self.lbl_collection_title.setText("全部音乐")
+            self.load_songs_for_collection()
+        elif "最近播放" in text:
+            self.current_collection = "HISTORY"
+            self.lbl_collection_title.setText("最近播放")
+            self.load_history_view()
+        else:
+            self.current_collection = text.replace("📁 ", "")
+            self.lbl_collection_title.setText(f"合集：{self.current_collection}")
+            self.load_songs_for_collection()
+
+    def load_songs_for_collection(self):
+        """加载指定合集的歌曲"""
+        self.playlist = []
+        self.table.setRowCount(0)
+        exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
+        
+        target_dirs = []
+        if self.current_collection:
+            target_dirs = [os.path.join(self.music_folder, self.current_collection)]
+        else:
+            target_dirs = [self.music_folder]
+            # 包含所有合集文件夹
+            for item in os.listdir(self.music_folder):
+                p = os.path.join(self.music_folder, item)
+                if os.path.isdir(p) and item in self.collections:
+                    target_dirs.append(p)
+
+        row = 0
+        for d in target_dirs:
+            if not os.path.exists(d):
+                continue
+                
+            for f in os.listdir(d):
+                if f.lower().endswith(exts):
+                    full_path = os.path.abspath(os.path.join(d, f))
+                    meta = self.metadata.get(f, {
+                        "artist": "未知歌手", 
+                        "album": self.current_collection if self.current_collection else "默认专辑"
+                    })
+                    
+                    song_data = {
+                        "path": full_path,
+                        "name": f,
+                        "artist": meta.get("artist"),
+                        "album": meta.get("album"),
+                        "duration": "-"
+                    }
+                    self.playlist.append(song_data)
+                    
+                    self.table.insertRow(row)
+                    self.table.setItem(row, 0, QTableWidgetItem(os.path.splitext(f)[0]))
+                    self.table.setItem(row, 1, QTableWidgetItem(meta.get("artist", "")))
+                    self.table.setItem(row, 2, QTableWidgetItem(meta.get("album", "")))
+                    self.table.setItem(row, 3, QTableWidgetItem("-"))
+                    row += 1
+        
+        # 保存原始播放列表用于搜索
+        self._original_playlist = self.playlist.copy()
+
+    def load_history_view(self):
+        """加载历史播放记录"""
+        self.playlist = []
+        self.table.setRowCount(0)
+        
+        for song in self.history:
+            if os.path.exists(song["path"]):
+                self.playlist.append(song)
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                self.table.setItem(row, 0, QTableWidgetItem(os.path.splitext(song["name"])[0]))
+                self.table.setItem(row, 1, QTableWidgetItem(song.get("artist", "")))
+                self.table.setItem(row, 2, QTableWidgetItem(song.get("album", "")))
+                self.table.setItem(row, 3, QTableWidgetItem(song.get("duration", "-")))
+
+    def show_context_menu(self, pos):
+        """显示右键菜单"""
+        items = self.table.selectedItems()
+        if not items:
+            return
+            
+        selected_rows = sorted(list(set(i.row() for i in items)))
+        menu = QMenu(self)
+        
+        # 播放操作
+        if len(selected_rows) == 1:
+            menu.addAction("▶ 播放", lambda: self.play_index(selected_rows[0]))
+            menu.addSeparator()
+        
+        # 重命名操作
+        if len(selected_rows) > 0:
+            rename_menu = menu.addMenu("🔤 重命名")
+            rename_menu.addAction("智能重命名选中", lambda: self.batch_smart_rename(selected_rows))
+        
+        # 删除操作
+        if len(selected_rows) > 0:
+            menu.addAction(f"🗑️ 删除选中歌曲 ({len(selected_rows)}首)", 
+                          lambda: self.delete_songs(selected_rows))
+        
+        menu.exec_(self.table.mapToGlobal(pos))
+
+    def batch_smart_rename(self, rows):
+        """批量智能重命名选中文件"""
+        selected_files = [self.playlist[i] for i in rows]
+        dialog = ModernBatchRenameDialog(selected_files, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.full_scan()
+
     def open_smart_rename(self):
         """打开现代化智能重命名对话框"""
         if not self.playlist:
@@ -1689,20 +1994,200 @@ class ModernSodaPlayer(QMainWindow):
             # 刷新显示
             self.full_scan()
 
-    def open_manual_search(self, idx):
-        """打开现代化歌词搜索"""
-        if idx >= len(self.playlist):
+    def download_from_bilibili(self):
+        """从B站下载音频"""
+        if not self.music_folder:
+            self.show_modern_message("提示", "请先设置音乐根目录")
             return
             
-        song = self.playlist[idx]
-        song_name = os.path.splitext(song["name"])[0]
-        artist = song.get("artist", "")
-        duration = self.player.duration() if self.current_index == idx else 0
+        url, ok = QInputDialog.getText(self, "B站下载", "请输入B站视频链接:")
+        if not ok or not url:
+            return
+            
+        # 解析分P信息
+        p_num = 1
+        match = re.search(r'[?&]p=(\d+)', url)
+        if match:
+            p_num = int(match.group(1))
+            
+        # 简化下载对话框
+        save_path = os.path.join(self.music_folder, "B站下载")
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+            
+        self.downloader = BilibiliDownloader(url, save_path, "single", p_num)
+        self.downloader.progress_signal.connect(
+            lambda s: self.lbl_collection_title.setText(s)
+        )
+        self.downloader.finished_signal.connect(self.on_download_finished)
+        self.downloader.error_signal.connect(
+            lambda e: self.show_modern_message("下载错误", e)
+        )
+        self.downloader.start()
         
-        dialog = ModernLyricSearchDialog(song_name, artist, duration, self)
-        if dialog.exec_() == QDialog.Accepted and dialog.result_id:
-            # 这里实现歌词下载逻辑
-            pass
+        self.lbl_collection_title.setText("⏳ 开始下载...")
+
+    def on_download_finished(self, folder_path, file_list):
+        """下载完成处理"""
+        self.full_scan()
+        self.show_modern_message("完成", f"下载完成！共下载 {len(file_list)} 个文件")
+
+    def play_selected(self, item):
+        """播放选中的歌曲"""
+        self.play_index(item.row())
+
+    def play_index(self, idx):
+        """播放指定索引的歌曲"""
+        if not self.playlist or idx >= len(self.playlist):
+            return
+            
+        self.current_index = idx
+        song = self.playlist[idx]
+        
+        # 添加到播放历史
+        if song not in self.history:
+            self.history.insert(0, song)
+            if len(self.history) > 100:  # 限制历史记录数量
+                self.history.pop()
+            self.save_history()
+        
+        try:
+            media_content = QMediaContent(QUrl.fromLocalFile(song["path"]))
+            self.player.setMedia(media_content)
+            self.player.setPlaybackRate(self.rate)
+            self.player.play()
+            
+            # 更新播放按钮状态
+            self.btn_play.setText("⏸")
+            
+            # 恢复偏移量
+            self.offset = self.saved_offsets.get(song["name"], 0.0)
+            self.update_offset_label()
+            
+            # 加载歌词
+            lrc_path = os.path.splitext(song["path"])[0] + ".lrc"
+            if os.path.exists(lrc_path):
+                self.parse_lrc_file(lrc_path)
+            else:
+                self.panel_lyric.clear()
+                self.panel_lyric.addItem("🎵 正在播放...")
+                
+        except Exception as e:
+            print(f"播放失败: {e}")
+            self.show_modern_message("播放错误", f"无法播放文件: {e}")
+
+    def parse_lrc_file(self, path):
+        """解析歌词文件"""
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                self.parse_lrc_content(content)
+        except UnicodeDecodeError:
+            try:
+                with open(path, 'r', encoding='gbk') as f:
+                    content = f.read()
+                    self.parse_lrc_content(content)
+            except Exception as e:
+                print(f"解析歌词文件失败: {e}")
+                self.panel_lyric.clear()
+                self.panel_lyric.addItem("❌ 歌词文件解析失败")
+
+    def parse_lrc_content(self, content):
+        """解析歌词内容"""
+        self.lyrics = []
+        self.panel_lyric.clear()
+        
+        if not content:
+            self.panel_lyric.addItem("🎵 纯音乐，请欣赏")
+            return
+            
+        pattern = re.compile(r'\[(\d+):(\d+)\.(\d+)\](.*)')
+        
+        for line in content.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+                
+            # 匹配时间标签
+            match = pattern.match(line)
+            if match:
+                minutes, seconds, milliseconds, text = match.groups()
+                if text.strip():  # 只添加非空歌词
+                    time_sec = int(minutes) * 60 + int(seconds) + int(milliseconds) / 100
+                    self.lyrics.append({"t": time_sec, "txt": text.strip()})
+                    self.panel_lyric.addItem(text.strip())
+        
+        # 如果没有找到有效歌词
+        if not self.lyrics:
+            # 尝试其他格式
+            lines = content.split('\n')
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('['):
+                    self.panel_lyric.addItem(line)
+        
+        if self.panel_lyric.count() == 0:
+            self.panel_lyric.addItem("🎵 暂无歌词")
+
+    def select_folder(self):
+        """选择音乐文件夹"""
+        folder = QFileDialog.getExistingDirectory(self, "选择音乐根目录")
+        if folder:
+            self.music_folder = folder
+            self.full_scan()
+            self.save_config()
+            self.show_modern_message("成功", f"已设置音乐根目录: {folder}")
+
+    def toggle_lyric(self):
+        """切换桌面歌词显示"""
+        if self.desktop_lyric.isVisible():
+            self.desktop_lyric.hide()
+        else:
+            self.desktop_lyric.show()
+
+    def delete_songs(self, rows):
+        """删除歌曲"""
+        if not rows:
+            return
+            
+        reply = QMessageBox.question(
+            self, "确认删除",
+            f"确定要删除 {len(rows)} 首歌曲吗？此操作不可恢复！",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+            
+        # 停止播放
+        if self.current_index in rows:
+            self.player.stop()
+            self.current_index = -1
+            
+        deleted_count = 0
+        for row in sorted(rows, reverse=True):  # 从后往前删除
+            if row < len(self.playlist):
+                song = self.playlist[row]
+                try:
+                    # 删除音频文件
+                    if os.path.exists(song["path"]):
+                        os.remove(song["path"])
+                    
+                    # 删除歌词文件
+                    lrc_path = os.path.splitext(song["path"])[0] + ".lrc"
+                    if os.path.exists(lrc_path):
+                        os.remove(lrc_path)
+                    
+                    # 从播放列表中移除
+                    self.playlist.pop(row)
+                    deleted_count += 1
+                    
+                except Exception as e:
+                    print(f"删除文件失败: {e}")
+        
+        # 刷新界面
+        self.refresh_table()
+        self.show_modern_message("完成", f"已删除 {deleted_count} 首歌曲")
 
     def show_modern_message(self, title, message):
         """显示现代化消息框"""
@@ -1712,17 +2197,93 @@ class ModernSodaPlayer(QMainWindow):
         msg.setStyleSheet(STYLESHEET)
         msg.exec_()
 
-    # 其他方法保持不变，但应该应用现代化的样式改进
-    # 包括：search_songs, full_scan, switch_collection, load_songs_for_collection, 
-    # load_history_view, show_context_menu, download_from_bilibili, play_selected,
-    # play_index, parse_lrc_file, parse_lrc_content, on_volume_changed, adjust_offset, 
-    # update_offset_label, toggle_play, toggle_mode, toggle_rate, play_next, play_prev, 
-    # on_position_changed, slider_pressed, slider_released, slider_moved, on_duration_changed, 
-    # on_state_changed, on_media_status_changed, select_folder, toggle_lyric, 
-    # delete_songs, load_config, save_config等
+    # === 配置管理 ===
+    def load_config(self):
+        """加载配置"""
+        try:
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    self.music_folder = config.get("music_folder", "")
+                    self.volume = config.get("volume", 50)
+                    
+                    # 恢复桌面歌词设置
+                    lyric_geo = config.get("lyric_geometry")
+                    if lyric_geo:
+                        self.desktop_lyric.setGeometry(*lyric_geo)
+                    
+                    lyric_color = config.get("lyric_color")
+                    if lyric_color:
+                        self.desktop_lyric.font_color = QColor(*lyric_color)
+                        self.desktop_lyric.update_styles()
+            
+            # 加载其他数据
+            for file_name, target_var in [
+                (OFFSET_FILE, "saved_offsets"),
+                (METADATA_FILE, "metadata"), 
+                (HISTORY_FILE, "history")
+            ]:
+                if os.path.exists(file_name):
+                    with open(file_name, 'r', encoding='utf-8') as f:
+                        setattr(self, target_var, json.load(f))
+            
+            # 设置音量
+            self.volume_slider.setValue(self.volume)
+            self.player.setVolume(self.volume)
+            self.lbl_volume.setText(f"{self.volume}%")
+            
+            # 扫描音乐库
+            if self.music_folder:
+                self.full_scan()
+                
+        except Exception as e:
+            print(f"加载配置失败: {e}")
 
-    # 由于篇幅限制，这里省略这些方法的实现细节
-    # 在实际代码中，这些方法应该保持原有功能，但使用现代化的UI元素
+    def save_config(self):
+        """保存配置"""
+        try:
+            config = {
+                "music_folder": self.music_folder,
+                "volume": self.volume,
+                "lyric_geometry": self.desktop_lyric.geometry().getRect(),
+                "lyric_color": self.desktop_lyric.font_color.getRgb()[:3]
+            }
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存配置失败: {e}")
+
+    def save_offsets(self):
+        """保存偏移量"""
+        try:
+            with open(OFFSET_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.saved_offsets, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存偏移量失败: {e}")
+
+    def save_metadata(self):
+        """保存元数据"""
+        try:
+            with open(METADATA_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.metadata, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存元数据失败: {e}")
+
+    def save_history(self):
+        """保存历史记录"""
+        try:
+            with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存历史记录失败: {e}")
+
+    def closeEvent(self, event):
+        """关闭事件"""
+        self.save_config()
+        self.save_offsets()
+        self.save_metadata()
+        self.save_history()
+        event.accept()
 
 if __name__ == "__main__":
     # 设置高DPI支持
