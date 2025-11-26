@@ -92,8 +92,6 @@ class BilibiliDownloader(QThread):
                 self.progress_signal.emit("✅ 下载完成，处理中...")
 
         ydl_opts = {
-            # 核心修改：尝试下载自带音画的 MP4 (compat_format)
-            # 这样即使没有 FFmpeg 也能播放
             'format': 'best[ext=mp4]/best', 
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
             'noplaylist': False, 
@@ -101,7 +99,7 @@ class BilibiliDownloader(QThread):
             'progress_hooks': [progress_hook],
             'quiet': True,
             'nocheckcertificate': True,
-            'playlist_items': '1-100', # 限制前100集
+            'playlist_items': '1-100',
         }
 
         try:
@@ -400,11 +398,10 @@ class SodaPlayer(QMainWindow):
         self.playlist = []
         self.list_widget.clear()
         if not os.path.exists(self.music_folder): return
-        # 扫描 mp3 和 mp4
         exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
         files = [x for x in os.listdir(self.music_folder) if x.lower().endswith(exts)]
         for f in files:
-            # 关键：使用绝对路径，防止 Qt 找不到文件
+            # 使用绝对路径
             full_path = os.path.abspath(os.path.join(self.music_folder, f))
             self.playlist.append({"path": full_path, "name": f})
             self.list_widget.addItem(os.path.splitext(f)[0])
@@ -438,11 +435,16 @@ class SodaPlayer(QMainWindow):
             return
         
         lines = []
+        # --- 语法完全修复 ---
         try:
-            with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
+            with open(path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
         except:
-            try: with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
-            except: return
+            try:
+                with open(path, 'r', encoding='gbk') as f:
+                    lines = f.readlines()
+            except:
+                return
 
         import re
         p = re.compile(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)')
@@ -495,8 +497,8 @@ class SodaPlayer(QMainWindow):
             else: self.play_next()
 
     def handle_player_error(self):
+        # 错误处理
         print(f"Error: {self.player.errorString()}")
-        # 自动切歌防止卡死
         QTimer.singleShot(1000, self.play_next)
 
     def on_duration_changed(self, dur):
@@ -544,7 +546,7 @@ class SodaPlayer(QMainWindow):
         with open(CONFIG_FILE,'w') as f: json.dump({"folder":self.music_folder},f)
 
 if __name__ == "__main__":
-    # 核心修复：手动添加插件路径，防止 PyInstaller 丢失插件
+    # 核心修复：确保插件路径被正确识别
     if getattr(sys, 'frozen', False):
         app_path = sys._MEIPASS
         os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = os.path.join(app_path, 'PyQt5', 'Qt', 'plugins')
