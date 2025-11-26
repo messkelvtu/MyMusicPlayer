@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QListWidget, QListWidgetItem,
                              QFileDialog, QFrame, QAbstractItemView, QCheckBox,
                              QGraphicsDropShadowEffect, QInputDialog, QMessageBox, 
-                             QFontDialog, QMenu, QAction, QSlider, QDialog, QRadioButton, QComboBox, QLineEdit)
+                             QFontDialog, QMenu, QAction, QSlider, QDialog, QRadioButton, QComboBox, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView)
 from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QSize, QCoreApplication, QTimer
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
@@ -31,10 +31,12 @@ STYLESHEET = """
 QMainWindow { background-color: #FFFFFF; }
 QWidget { font-family: "SimSun", "宋体", serif; color: #333333; }
 
+/* 侧边栏 */
 QFrame#Sidebar { background-color: #F7F9FC; border-right: 1px solid #EEEEEE; }
 QLabel#Logo { font-size: 22px; font-weight: bold; color: #1ECD97; padding: 20px; }
 QLabel#SectionTitle { font-size: 12px; color: #999; padding: 10px 20px; font-weight: bold; }
 
+/* 导航按钮 */
 QPushButton.NavBtn {
     background-color: transparent; border: none; text-align: left; 
     padding: 10px 20px; font-size: 14px; color: #555; border-radius: 6px; margin: 2px 10px;
@@ -45,10 +47,15 @@ QPushButton.NavBtn:checked { background-color: #1ECD97; color: white; font-weigh
 QPushButton#DownloadBtn { color: #FF6699; font-weight: bold; }
 QPushButton#DownloadBtn:hover { background-color: #FFF0F5; }
 
+/* 列表 */
 QListWidget { background-color: #FFFFFF; border: none; outline: none; }
 QListWidget::item { padding: 8px; margin: 1px 10px; border-bottom: 1px solid #FAFAFA; }
 QListWidget::item:selected { background-color: #FFF8E1; color: #F9A825; }
 
+/* 表格 (歌词搜索) */
+QTableWidget { border: 1px solid #EEE; gridline-color: #EEE; selection-background-color: #1ECD97; }
+
+/* 播放条 */
 QFrame#PlayerBar { background-color: #FFFFFF; border-top: 1px solid #F0F0F0; }
 QPushButton#PlayBtn { 
     background-color: #1ECD97; color: white; border-radius: 25px; 
@@ -67,61 +74,112 @@ QSlider::sub-page:horizontal { background: #1ECD97; border-radius: 3px; }
 def sanitize_filename(name):
     return re.sub(r'[\\/*?:"<>|]', "", name).strip()
 
-# --- 在线歌词搜索线程 ---
-class OnlineLyricSearcher(QThread):
-    finished_signal = pyqtSignal(str, str) 
-    error_signal = pyqtSignal(str)
+# --- 手动歌词搜索弹窗 ---
+class LyricSearchDialog(QDialog):
+    def __init__(self, song_name, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("搜索在线歌词")
+        self.resize(600, 400)
+        self.selected_lyric_data = None
+        
+        layout = QVBoxLayout(self)
+        
+        # 搜索区
+        h = QHBoxLayout()
+        self.input_key = QLineEdit(song_name)
+        btn_search = QPushButton("搜索")
+        btn_search.clicked.connect(self.start_search)
+        h.addWidget(self.input_key)
+        h.addWidget(btn_search)
+        layout.addLayout(h)
+        
+        # 结果列表
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["歌名", "歌手", "ID"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.itemDoubleClicked.connect(self.on_item_dbl_click)
+        layout.addWidget(self.table)
+        
+        self.status_lbl = QLabel("双击列表项以应用歌词")
+        layout.addWidget(self.status_lbl)
 
-    def __init__(self, song_name, save_path):
+    def start_search(self):
+        key = self.input_key.text()
+        if not key: return
+        self.status_lbl.setText("搜索中...")
+        self.table.setRowCount(0)
+        
+        # 启动线程搜索
+        self.worker = LyricListSearcher(key)
+        self.worker.result_signal.connect(self.on_search_result)
+        self.worker.start()
+
+    def on_search_result(self, results):
+        self.status_lbl.setText(f"找到 {len(results)} 个结果")
+        self.table.setRowCount(len(results))
+        for i, item in enumerate(results):
+            self.table.setItem(i, 0, QTableWidgetItem(item['name']))
+            self.table.setItem(i, 1, QTableWidgetItem(item['artist']))
+            self.table.setItem(i, 2, QTableWidgetItem(str(item['id'])))
+
+    def on_item_dbl_click(self, item):
+        row = item.row()
+        song_id = self.table.item(row, 2).text()
+        self.selected_lyric_data = song_id
+        self.accept()
+
+class LyricListSearcher(QThread):
+    result_signal = pyqtSignal(list)
+    
+    def __init__(self, keyword):
         super().__init__()
-        self.song_name = song_name
-        self.save_path = save_path
-
+        self.keyword = keyword
+        
     def run(self):
         try:
-            clean_name = os.path.splitext(self.song_name)[0]
-            clean_name = re.sub(r'\(.*?\)|\[.*?\]|【.*?】', '', clean_name).strip()
-            
-            search_url = "http://music.163.com/api/search/get/web?csrf_token="
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            data = urllib.parse.urlencode({'s': clean_name, 'type': 1, 'offset': 0, 'total': 'true', 'limit': 1}).encode('utf-8')
-            
-            req = urllib.request.Request(search_url, data=data, headers=headers)
-            
-            # 语法绝对修正：多行写法
+            url = "http://music.163.com/api/search/get/web?csrf_token="
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            data = urllib.parse.urlencode({'s': self.keyword, 'type': 1, 'offset': 0, 'total': 'true', 'limit': 10}).encode('utf-8')
+            req = urllib.request.Request(url, data=data, headers=headers)
             with urllib.request.urlopen(req) as f:
-                res_str = f.read().decode('utf-8')
+                res = json.loads(f.read().decode('utf-8'))
             
-            res = json.loads(res_str)
-            
-            if not res.get('result') or not res['result'].get('songs'):
-                self.error_signal.emit("未找到在线歌词")
-                return
+            results = []
+            if res.get('result') and res['result'].get('songs'):
+                for s in res['result']['songs']:
+                    results.append({
+                        'name': s['name'],
+                        'artist': s['artists'][0]['name'] if s['artists'] else '未知',
+                        'id': s['id']
+                    })
+            self.result_signal.emit(results)
+        except:
+            self.result_signal.emit([])
 
-            song_id = res['result']['songs'][0]['id']
-            lyric_url = f"http://music.163.com/api/song/lyric?os=pc&id={song_id}&lv=-1&kv=-1&tv=-1"
+class LyricDownloader(QThread):
+    finished_signal = pyqtSignal(str)
+    
+    def __init__(self, song_id, save_path):
+        super().__init__()
+        self.sid = song_id
+        self.path = save_path
+        
+    def run(self):
+        try:
+            url = f"http://music.163.com/api/song/lyric?os=pc&id={self.sid}&lv=-1&kv=-1&tv=-1"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req) as f:
+                res = json.loads(f.read().decode('utf-8'))
             
-            req_lrc = urllib.request.Request(lyric_url, headers=headers)
-            
-            # 语法绝对修正
-            with urllib.request.urlopen(req_lrc) as f:
-                lrc_str = f.read().decode('utf-8')
-                
-            lrc_res = json.loads(lrc_str)
-
-            if 'lrc' in lrc_res and 'lyric' in lrc_res['lrc']:
-                lyric_text = lrc_res['lrc']['lyric']
-                # 保存到本地
-                # 语法绝对修正
-                with open(self.save_path, 'w', encoding='utf-8') as f:
-                    f.write(lyric_text)
-                
-                self.finished_signal.emit(lyric_text, self.save_path)
-            else:
-                self.error_signal.emit("该歌曲无歌词")
-
-        except Exception as e:
-            self.error_signal.emit(str(e))
+            if 'lrc' in res and 'lyric' in res['lrc']:
+                lrc = res['lrc']['lyric']
+                with open(self.path, 'w', encoding='utf-8') as f:
+                    f.write(lrc)
+                self.finished_signal.emit(lrc)
+        except: pass
 
 # --- 批量重命名弹窗 ---
 class BatchRenameDialog(QDialog):
@@ -173,7 +231,7 @@ class BatchRenameDialog(QDialog):
         for song in self.playlist:
             item = QListWidgetItem(song["name"])
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked)
+            item.setCheckState(Qt.Checked) # 默认全选
             self.list_view.addItem(item)
 
     def select_all(self):
@@ -361,7 +419,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (完全体)")
+        self.setWindowTitle("汽水音乐 (完美修复版)")
         self.resize(1100, 750)
         self.setStyleSheet(STYLESHEET)
 
@@ -525,23 +583,31 @@ class SodaPlayer(QMainWindow):
         r_layout.addWidget(bar)
         layout.addWidget(right_panel)
 
+    # --- 修复的扫描逻辑 ---
     def full_scan(self):
         if not self.music_folder or not os.path.exists(self.music_folder): return
+        
         self.collections = []
-        exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
+        # 扫描一级子文件夹，不再进行单曲过滤
         for item in os.listdir(self.music_folder):
             full_path = os.path.join(self.music_folder, item)
             if os.path.isdir(full_path):
-                files = [x for x in os.listdir(full_path) if x.lower().endswith(exts)]
-                if len(files) == 1:
-                    song_base = os.path.splitext(files[0])[0]
-                    if item in song_base or song_base in item: continue 
                 self.collections.append(item)
+        
         self.nav_list.clear()
         self.nav_list.addItem("💿  所有歌曲") 
         for c in self.collections:
             self.nav_list.addItem(f"📁  {c}")
-        self.load_songs_for_collection()
+            
+        # 保持当前视图
+        if not self.current_collection:
+            self.load_songs_for_collection()
+        else:
+            # 如果当前合集被删了，回退到根目录
+            if self.current_collection in self.collections:
+                self.load_songs_for_collection()
+            else:
+                self.switch_collection(self.nav_list.item(0))
 
     def create_collection(self):
         if not self.music_folder: return
@@ -570,6 +636,7 @@ class SodaPlayer(QMainWindow):
         self.playlist = []
         self.list_widget.clear()
         exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
+        
         target_dirs = []
         if self.current_collection:
             target_dirs = [os.path.join(self.music_folder, self.current_collection)]
@@ -591,6 +658,7 @@ class SodaPlayer(QMainWindow):
         items = self.list_widget.selectedItems()
         menu = QMenu()
         
+        # 批量移动
         act_move = QMenu("📂 批量移动到...", self)
         act_root = QAction("💿 根目录", self)
         act_root.triggered.connect(lambda: self.batch_move(items, ""))
@@ -603,7 +671,7 @@ class SodaPlayer(QMainWindow):
                 act_move.addAction(act_sub)
         menu.addMenu(act_move)
 
-        act_batch_rename = QAction("🔠 批量重命名 (选中/全部)", self)
+        act_batch_rename = QAction("🔠 批量重命名", self)
         act_batch_rename.triggered.connect(self.open_batch_rename)
         menu.addAction(act_batch_rename)
         menu.addSeparator()
@@ -612,10 +680,15 @@ class SodaPlayer(QMainWindow):
             idx = self.list_widget.row(items[0])
             act_rename = QAction("✏️ 重命名单曲", self)
             act_bind = QAction("🔐 绑定歌词 (整理)", self)
+            act_search_lrc = QAction("🔍 手动搜索歌词", self)
+            
             act_rename.triggered.connect(lambda: self.rename_song(idx))
             act_bind.triggered.connect(lambda: self.bind_lyrics(idx))
+            act_search_lrc.triggered.connect(lambda: self.search_manual_lrc(idx))
+            
             menu.addAction(act_rename)
             menu.addAction(act_bind)
+            menu.addAction(act_search_lrc)
         
         if items:
             act_del = QAction(f"🗑️ 删除 ({len(items)}首)", self)
@@ -624,7 +697,32 @@ class SodaPlayer(QMainWindow):
         
         menu.exec_(self.list_widget.mapToGlobal(pos))
 
+    def search_manual_lrc(self, idx):
+        song = self.playlist[idx]
+        dialog = LyricSearchDialog(os.path.splitext(song["name"])[0], self)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_lyric_data:
+            song_id = dialog.selected_lyric_data
+            lrc_path = os.path.splitext(song["path"])[0] + ".lrc"
+            
+            self.panel_lyric.clear()
+            self.panel_lyric.addItem("正在下载歌词...")
+            
+            self.lrc_dl = LyricDownloader(song_id, lrc_path)
+            self.lrc_dl.finished_signal.connect(self.on_manual_lrc_downloaded)
+            self.lrc_dl.start()
+
+    def on_manual_lrc_downloaded(self, content):
+        # 重新解析当前歌词
+        if self.playlist and self.current_index >= 0:
+            song = self.playlist[self.current_index]
+            lrc_path = os.path.splitext(song["path"])[0] + ".lrc"
+            self.parse_lrc(lrc_path)
+        QMessageBox.information(self, "成功", "歌词已更新")
+
     def batch_move(self, items, target_folder_name):
+        # 核心修复：先卸载媒体，防止文件占用
+        self.player.setMedia(QMediaContent())
+        
         target_path = self.music_folder if not target_folder_name else os.path.join(self.music_folder, target_folder_name)
         if not os.path.exists(target_path): os.makedirs(target_path)
         count = 0
@@ -632,7 +730,7 @@ class SodaPlayer(QMainWindow):
             idx = self.list_widget.row(item)
             if idx >= len(self.playlist): continue
             song = self.playlist[idx]
-            if self.current_index == idx: self.player.stop()
+            
             try:
                 src = song["path"]
                 dst = os.path.join(target_path, song["name"])
@@ -643,11 +741,16 @@ class SodaPlayer(QMainWindow):
                     shutil.move(lrc_src, lrc_dst)
                 count += 1
             except Exception as e: print(f"Move error: {e}")
+        
         self.full_scan()
         QMessageBox.information(self, "成功", f"已移动 {count} 首歌曲")
 
     def open_batch_rename(self):
         if not self.playlist: return
+        
+        # 核心修复：先卸载媒体
+        self.player.setMedia(QMediaContent())
+        
         dialog = BatchRenameDialog(self.playlist, self)
         if dialog.exec_() == QDialog.Accepted:
             find_str, replace_str, indices = dialog.get_data()
@@ -660,23 +763,19 @@ class SodaPlayer(QMainWindow):
                     old_path = song["path"]
                     new_name = song["name"].replace(find_str, replace_str)
                     new_path = os.path.join(os.path.dirname(old_path), new_name)
-                    
-                    # 修复批量重命名逻辑：添加 try-except 防止单个失败卡死
                     try:
-                        if self.current_index == i: self.player.stop()
                         os.rename(old_path, new_path)
                         count += 1
                         old_lrc = os.path.splitext(old_path)[0] + ".lrc"
                         if os.path.exists(old_lrc):
                             new_lrc = os.path.splitext(new_path)[0] + ".lrc"
                             os.rename(old_lrc, new_lrc)
-                    except Exception:
-                        pass # 忽略错误，继续下一个
-            
+                    except: pass
             self.load_songs_for_collection()
             QMessageBox.information(self, "完成", f"成功重命名 {count} 个文件")
 
     def rename_song(self, idx):
+        self.player.setMedia(QMediaContent()) # 释放占用
         song = self.playlist[idx]
         old = song["path"]
         name, ok = QInputDialog.getText(self, "重命名", "新歌名:", text=os.path.splitext(song["name"])[0])
@@ -685,7 +784,6 @@ class SodaPlayer(QMainWindow):
             new_name = name + os.path.splitext(song["name"])[1]
             new_path = os.path.join(os.path.dirname(old), new_name)
             try:
-                if self.current_index == idx: self.player.stop()
                 os.rename(old, new_path)
                 old_lrc = os.path.splitext(old)[0] + ".lrc"
                 if os.path.exists(old_lrc): 
@@ -694,6 +792,7 @@ class SodaPlayer(QMainWindow):
             except Exception as e: QMessageBox.warning(self, "错误", str(e))
 
     def bind_lyrics(self, idx):
+        self.player.setMedia(QMediaContent()) # 释放占用
         song = self.playlist[idx]
         song_path = song["path"]
         song_name = os.path.splitext(song["name"])[0]
@@ -704,7 +803,6 @@ class SodaPlayer(QMainWindow):
         try:
             if not os.path.exists(new_folder_path): os.makedirs(new_folder_path)
             new_song_path = os.path.join(new_folder_path, song["name"])
-            if self.current_index == idx: self.player.stop()
             shutil.move(song_path, new_song_path)
             new_lrc_path = os.path.join(new_folder_path, song_name + ".lrc")
             shutil.copy(lrc_file, new_lrc_path)
@@ -714,12 +812,12 @@ class SodaPlayer(QMainWindow):
 
     def delete_songs(self, items):
         if QMessageBox.Yes == QMessageBox.question(self, "确认", f"删除 {len(items)} 首歌？"):
+            self.player.setMedia(QMediaContent()) # 释放占用
             for item in items:
                 idx = self.list_widget.row(item)
                 if idx < len(self.playlist):
                     song = self.playlist[idx]
                     try:
-                        if self.current_index == idx: self.player.stop()
                         os.remove(song["path"])
                         lrc = os.path.splitext(song["path"])[0] + ".lrc"
                         if os.path.exists(lrc): os.remove(lrc)
@@ -768,22 +866,8 @@ class SodaPlayer(QMainWindow):
             self.player.setPlaybackRate(self.rate)
             self.player.play()
             self.btn_play.setText("⏸")
-            self.panel_lyric.clear()
-            self.desktop_lyric.set_lyrics("", "正在搜索歌词...", "")
-            
-            # 优先本地，无则在线
-            lrc_path = os.path.splitext(song["path"])[0] + ".lrc"
-            if os.path.exists(lrc_path):
-                self.parse_lrc(lrc_path)
-            else:
-                self.online_searcher = OnlineLyricSearcher(song["name"], lrc_path)
-                self.online_searcher.finished_signal.connect(self.on_online_lyric_found)
-                self.online_searcher.error_signal.connect(lambda e: self.desktop_lyric.set_lyrics("", "无歌词", ""))
-                self.online_searcher.start()
+            self.parse_lrc(os.path.splitext(song["path"])[0] + ".lrc")
         except Exception as e: print(f"Error: {e}")
-
-    def on_online_lyric_found(self, content, path):
-        self.parse_lrc(path)
 
     def parse_lrc(self, path):
         self.lyrics = []
@@ -793,19 +877,12 @@ class SodaPlayer(QMainWindow):
         if not os.path.exists(path): 
             self.panel_lyric.addItem("纯音乐")
             return
-        
         lines = []
-        # --- 语法绝对正确 ---
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+            with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
         except Exception:
-            try:
-                with open(path, 'r', encoding='gbk') as f:
-                    lines = f.readlines()
-            except Exception:
-                return
-
+            try: with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
+            except Exception: return
         import re
         p = re.compile(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)')
         for l in lines:
