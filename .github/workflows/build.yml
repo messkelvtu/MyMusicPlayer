@@ -24,10 +24,11 @@ jobs:
 
     - name: Build EXE
       # 关键修改：
-      # --collect-all PyQt5: 强制收集 PyQt5 的所有插件(包括音频解码插件)
-      # --collect-all yt_dlp: 强制收集下载器组件
+      # 1. 去掉了 --collect-all PyQt5 (它太大了会导致报错)
+      # 2. 保留 --collect-all yt_dlp (确保下载功能正常)
+      # 3. 增加了 --hidden-import PyQt5.QtMultimedia (确保播放功能正常)
       run: |
-        pyinstaller --noconsole --onefile --collect-all PyQt5 --collect-all yt_dlp --name "SodaMusicPlayer" main.py
+        pyinstaller --noconsole --onefile --collect-all yt_dlp --hidden-import PyQt5.QtMultimedia --hidden-import PyQt5.QtNetwork --name "SodaMusicPlayer" main.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
