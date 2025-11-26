@@ -4,7 +4,6 @@ import json
 import shutil
 import random
 import threading
-import re
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QListWidget, 
                              QFileDialog, QFrame, QAbstractItemView,
@@ -67,12 +66,6 @@ QSlider::sub-page:horizontal {
 }
 """
 
-# --- 自定义日志记录器 (捕捉 yt-dlp 内部错误) ---
-class MyLogger:
-    def debug(self, msg): pass
-    def warning(self, msg): pass
-    def error(self, msg): print(msg)
-
 # --- B站下载线程 ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
@@ -92,38 +85,33 @@ class BilibiliDownloader(QThread):
         def progress_hook(d):
             if d['status'] == 'downloading':
                 p = d.get('_percent_str', '0%')
-                # 去除文件名中的非法字符
-                raw_name = d.get('filename', '未知')
-                filename = os.path.basename(raw_name)
-                if len(filename) > 25: filename = filename[:25] + "..."
+                filename = os.path.basename(d.get('filename', '未知'))
+                if len(filename) > 25: 
+                    filename = filename[:25] + "..."
                 self.progress_signal.emit(f"⬇️ {p} : {filename}")
             elif d['status'] == 'finished':
-                self.progress_signal.emit("✅ 下载完成，正在转换...")
+                self.progress_signal.emit("✅ 下载完成...")
 
-        # 核心修复：B站配置
-        # 'bestaudio' 确保只下载音频流，不需要 FFmpeg 合并视频
-        # 'm4a' 格式是 Windows 最兼容的
+        # 强制 MP4 格式
         ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/bestaudio/best', 
+            'format': 'best[ext=mp4]/best', 
             'outtmpl': os.path.join(self.folder, '%(title)s.%(ext)s'),
-            'noplaylist': False, # 允许下载合集
+            'noplaylist': False, 
             'ignoreerrors': True,
             'progress_hooks': [progress_hook],
-            'logger': MyLogger(),
             'quiet': True,
             'nocheckcertificate': True,
-            'restrictfilenames': True, # 自动处理非法字符文件名
             'playlist_items': '1-100', 
         }
 
         try:
-            self.progress_signal.emit("🔍 正在解析链接...")
+            self.progress_signal.emit("🔍 解析中...")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
-            self.progress_signal.emit("🎉 任务全部结束")
+            self.progress_signal.emit("🎉 完成")
             self.finished_signal.emit()
         except Exception as e:
-            self.error_signal.emit(f"❌ 下载出错: {str(e)}")
+            self.error_signal.emit(f"❌: {str(e)}")
 
 # --- 桌面歌词 ---
 class DesktopLyricWindow(QWidget):
@@ -190,7 +178,7 @@ class DesktopLyricWindow(QWidget):
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (B站专版)")
+        self.setWindowTitle("汽水音乐 (完美修复版)")
         self.resize(1080, 720)
         self.setStyleSheet(STYLESHEET)
 
@@ -403,10 +391,10 @@ class SodaPlayer(QMainWindow):
     
     def on_dl_finish(self):
         self.scan_music()
-        QMessageBox.information(self, "完成", "下载结束")
+        QMessageBox.information(self, "完成", "所有任务结束")
     
     def on_dl_error(self, msg):
-        QMessageBox.warning(self, "下载失败", msg)
+        QMessageBox.warning(self, "错误", msg)
 
     def select_folder(self):
         f = QFileDialog.getExistingDirectory(self, "选择目录")
@@ -416,11 +404,10 @@ class SodaPlayer(QMainWindow):
         self.playlist = []
         self.list_widget.clear()
         if not os.path.exists(self.music_folder): return
-        # 支持音频和视频文件
-        exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4', '.webm')
+        # 支持 MP4
+        exts = ('.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4')
         files = [x for x in os.listdir(self.music_folder) if x.lower().endswith(exts)]
         for f in files:
-            # 绝对路径修复
             full_path = os.path.abspath(os.path.join(self.music_folder, f))
             self.playlist.append({"path": full_path, "name": f})
             self.list_widget.addItem(os.path.splitext(f)[0])
@@ -454,11 +441,18 @@ class SodaPlayer(QMainWindow):
             return
         
         lines = []
+        # --- 修复后的标准写法 (绝对不再报错) ---
         try:
-            with open(path, 'r', encoding='utf-8') as f: lines = f.readlines()
-        except:
-            try: with open(path, 'r', encoding='gbk') as f: lines = f.readlines()
-            except: return
+            with open(path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except UnicodeDecodeError:
+            try:
+                with open(path, 'r', encoding='gbk') as f:
+                    lines = f.readlines()
+            except:
+                return
+        except Exception:
+            return
 
         import re
         p = re.compile(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)')
