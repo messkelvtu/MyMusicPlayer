@@ -481,7 +481,7 @@ class DownloadDialog(QDialog):
 # --- B站下载线程 ---
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
-    finished_signal = pyqtSignal(str, str) 
+    finished_signal = pyqtSignal(str, str)
     error_signal = pyqtSignal(str)
 
     def __init__(self, url, save_path, mode="single", start_p=1):
@@ -1133,7 +1133,6 @@ class SodaPlayer(QMainWindow):
                 with open(CONFIG_FILE,'r') as f: 
                     d = json.load(f)
                     self.music_folder=d.get("folder","")
-                    # 恢复桌面歌词位置
                     geo = d.get("lyric_geo")
                     if geo: self.desktop_lyric.setGeometry(*geo)
                     col = d.get("lyric_color")
