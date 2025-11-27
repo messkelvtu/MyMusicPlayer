@@ -21,19 +21,33 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller PyQt5 PyQt5-sip yt-dlp requests aduskindqt
-        pip list
 
-    - name: Debug - List files
-      run: dir
-
-    - name: Build EXE (with debug)
+    - name: Build EXE
       run: |
-        pyinstaller --noconsole --onefile ^
-          --collect-all PyQt5.QtMultimedia ^
-          --collect-all yt_dlp ^
-          --debug=imports ^
-          --name "SodaMusicPlayer" ^
+        pyinstaller --noconsole --onefile `
+          --collect-all PyQt5.QtMultimedia `
+          --collect-all yt_dlp `
+          --hidden-import=PyQt5.QtCore `
+          --hidden-import=PyQt5.QtGui `
+          --hidden-import=PyQt5.QtWidgets `
+          --hidden-import=PyQt5.QtNetwork `
+          --hidden-import=requests `
+          --hidden-import=urllib3 `
+          --hidden-import=chardet `
+          --hidden-import=idna `
+          --add-data=".;." `
+          --name "SodaMusicPlayer" `
           main.py
+
+    - name: Verify EXE
+      run: |
+        if (Test-Path "dist/SodaMusicPlayer.exe") {
+          echo "✅ EXE 文件创建成功"
+          echo "文件大小: $((Get-Item 'dist/SodaMusicPlayer.exe').Length) bytes"
+        } else {
+          echo "❌ EXE 文件未找到"
+          exit 1
+        }
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
