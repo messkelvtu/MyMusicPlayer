@@ -44,15 +44,11 @@ class WINDOWCOMPOSITIONATTRIBDATA(Structure):
 def enable_acrylic(hwnd):
     try:
         policy = ACCENT_POLICY()
-        policy.AccentState = 4
-        policy.GradientColor = 0xCCF2F2F2 
+        policy.AccentState = 4; policy.GradientColor = 0xCCF2F2F2 
         data = WINDOWCOMPOSITIONATTRIBDATA()
-        data.Attribute = 19
-        data.Data = POINTER(ACCENT_POLICY)(policy)
-        data.SizeOfData = sizeof(policy)
+        data.Attribute = 19; data.Data = POINTER(ACCENT_POLICY)(policy); data.SizeOfData = sizeof(policy)
         windll.user32.SetWindowCompositionAttribute(int(hwnd), byref(data))
-    except:
-        pass
+    except: pass
 
 # --- 极光 UI 样式 (iOS 风格) ---
 STYLESHEET = """
@@ -380,7 +376,7 @@ class SodaPlayer(QMainWindow):
         
         sl.addStretch()
         bf=QPushButton("📂 根目录"); bf.setProperty("NavBtn",True); bf.clicked.connect(self.sel_folder); sl.addWidget(bf)
-        bm=QPushButton("🚚 批量移动"); bm.setProperty("NavBtn",True); bm.clicked.connect(self.batch_move_ui); sl.addWidget(bm)
+        bm=QPushButton("🚚 批量移动"); bm.setProperty("NavBtn",True); bm.clicked.connect(self.open_batch_move_dialog); sl.addWidget(bm)
         bd=QPushButton("🎤 桌面歌词"); bd.setProperty("NavBtn",True); bd.clicked.connect(self.tog_lrc); sl.addWidget(bd)
         main.addWidget(sb)
 
@@ -500,12 +496,6 @@ class SodaPlayer(QMainWindow):
                 for f in os.listdir(d):
                     if f.lower().endswith(ext):
                         fp = os.path.abspath(os.path.join(d,f))
-                        # 核心逻辑：在根目录模式下，跳过单曲文件夹
-                        if not self.current_collection:
-                             if os.path.dirname(fp) != self.music_folder: # 子文件夹
-                                 parent_name = os.path.basename(os.path.dirname(fp))
-                                 if parent_name not in self.collections: continue
-
                         meta = self.metadata.get(f, {})
                         s = {"path":fp, "name":f, "artist":meta.get("a","未知"), "album":meta.get("b","未知")}
                         self.add_song_row(s)
@@ -551,9 +541,9 @@ class SodaPlayer(QMainWindow):
             self.offset = self.saved_offsets.get(s["name"], 0.0)
             self.lo.setText(f"{self.offset}s")
             
-            lrc = os.path.splitext(s["path"])[0]+".lrc"
-            if os.path.exists(lrc):
-                with open(lrc,'r',encoding='utf-8',errors='ignore') as f: self.parse_lrc(f.read())
+            lp = os.path.splitext(s["path"])[0]+".lrc"
+            if os.path.exists(lp):
+                with open(lp,'r',encoding='utf-8',errors='ignore') as f: self.parse_lrc(f.read())
             else:
                 self.big_lrc.clear(); self.big_lrc.addItem("搜索歌词...")
                 self.sw = LyricListSearchWorker(nm)
@@ -562,7 +552,7 @@ class SodaPlayer(QMainWindow):
         except: pass
         
     def auto_lrc(self, res):
-        if res:
+        if res and self.current_index>=0:
             best = res[0]
             lp = os.path.splitext(self.playlist[self.current_index]["path"])[0]+".lrc"
             self.ad = LyricDownloader(best['id'], lp)
@@ -581,52 +571,122 @@ class SodaPlayer(QMainWindow):
                     self.lyrics.append({"t":t, "txt":tx})
                     self.big_lrc.addItem(tx)
 
-    # Batch Move
-    def batch_move_ui(self):
+    # Ctrl
+    def ao(self, v):
+        self.offset+=v; self.lo.setText(f"{self.offset}s")
+        if self.current_index>=0: 
+            self.saved_offsets[self.playlist[self.current_index]["name"]]=self.offset
+            self.save_off()
+    def tog_play(self): 
+        if self.player.state()==QMediaPlayer.PlayingState: self.player.pause()
+        else: self.player.play()
+    def tog_mode(self): self.mode=(self.mode+1)%3; self.b_m.setText(["🔁","🔂","🔀"][self.mode])
+    def tog_rate(self):
+        rs=[1.0,1.25,1.5,2.0,0.5]; i=rs.index(self.rate) if self.rate in rs else 0
+        self.rate=rs[(i+1)%5]; self.player.setPlaybackRate(self.rate); self.br.setText(f"{self.rate}x")
+    def play_next(self):
+        if not self.playlist: return
+        n = random.randint(0,len(self.playlist)-1) if self.mode==2 else (self.current_index+1)%len(self.playlist)
+        self.play(n)
+    def play_prev(self):
+        if not self.playlist: return
+        p = random.randint(0,len(self.playlist)-1) if self.mode==2 else (self.current_index-1)%len(self.playlist)
+        self.play(p)
+    
+    # Events
+    def on_pos(self, p):
+        if not self.slider_down: self.sl.setValue(p)
+        self.lp.setText(ms_to_str(p))
+        t = p/1000 + self.offset
+        if self.lyrics:
+            idx = -1
+            for i,l in enumerate(self.lyrics):
+                if t>=l["t"]: idx=i
+                else: break
+            if idx!=-1:
+                self.big_lrc.setCurrentRow(idx)
+                self.big_lrc.scrollToItem(self.big_lrc.item(idx), QAbstractItemView.PositionAtCenter)
+                pr=self.lyrics[idx-1]["txt"] if idx>0 else ""
+                cu=self.lyrics[idx]["txt"]
+                ne=self.lyrics[idx+1]["txt"] if idx<len(self.lyrics)-1 else ""
+                self.desk_lrc.set_text(pr,cu,ne)
+    def sp(self): self.slider_down=True
+    def sr(self): self.slider_down=False; self.player.setPosition(self.sl.value())
+    def sm(self, v): 
+        if self.slider_down: self.lp.setText(ms_to_str(v))
+    def on_dur(self, d): self.sl.setRange(0,d); self.lt.setText(ms_to_str(d))
+    def on_state(self, s): self.b_p.setText("⏸" if s==QMediaPlayer.PlayingState else "▶")
+    def on_status(self, s): 
+        if s==QMediaPlayer.EndOfMedia: 
+            if self.mode==1: self.player.play() 
+            else: self.play_next()
+    def handle_error(self): QTimer.singleShot(1000, self.play_next)
+
+    def new_coll(self): self.create_collection()
+    def sel_folder(self): self.select_folder()
+    def tog_lrc(self): 
+        if self.desk_lrc.isVisible(): self.desk_lrc.hide()
+        else: self.desk_lrc.show()
+    def open_batch_move_dialog(self):
         rows = sorted(set(i.row() for i in self.table.selectedItems()))
-        if not rows: return QMessageBox.warning(self,"","请先选择歌曲")
+        if not rows: return QMessageBox.warning(self,"","选歌")
         ls = ["根目录"] + self.collections
         t, ok = QInputDialog.getItem(self, "移动", "目标:", ls, 0, False)
         if ok: self.do_move(rows, "" if t=="根目录" else t)
 
+    # Copied and fixed methods from previous correct version
     def do_move(self, rows, target):
         self.player.setMedia(QMediaContent()) 
         tp = os.path.join(self.music_folder, target) if target else self.music_folder
         if not os.path.exists(tp): os.makedirs(tp)
-        
         targets = [self.playlist[i] for i in rows]
         cnt=0
         for s in targets:
             try:
-                src = s["path"]; dst = os.path.join(tp, s["name"])
-                if src!=dst:
-                    shutil.move(src, dst)
-                    l = os.path.splitext(src)[0]+".lrc"
+                dst = os.path.join(tp, s["name"])
+                if s["path"]!=dst:
+                    shutil.move(s["path"], dst)
+                    l = os.path.splitext(s["path"])[0]+".lrc"
                     if os.path.exists(l): shutil.move(l, os.path.join(tp, os.path.basename(l)))
                     cnt+=1
             except: pass
         self.full_scan(); QMessageBox.information(self,"完成",f"移动{cnt}首")
 
-    # Menu
-    def show_menu(self, p):
-        rows = sorted(set(i.row() for i in self.table.selectedItems()))
-        if not rows: return
-        m = QMenu()
-        
-        mv = m.addMenu("📂 批量移动到")
-        mv.addAction("根目录", lambda: self.do_move(rows, ""))
-        for c in self.collections: mv.addAction(c, lambda _,t=c: self.do_move(rows, t))
-        
-        m.addAction("🔠 批量重命名", self.do_rename_batch)
-        m.addAction("✏️ 批量改信息", lambda: self.do_edit_info(rows))
-        m.addSeparator()
-        if len(rows)==1:
-            i = rows[0]
-            m.addAction("🔐 绑定歌词 (整理)", lambda: self.do_bind(i))
-            m.addAction("🔍 手动搜歌词", lambda: self.do_search_lrc(i))
-            m.addAction("❌ 解绑歌词", lambda: self.do_del_lrc(i))
-        m.addAction("🗑️ 删除", lambda: self.do_del(rows))
-        m.exec_(self.table.mapToGlobal(p))
+    def dl_bili(self):
+        if not self.music_folder: return QMessageBox.warning(self,"","请先设置目录")
+        u,ok = QInputDialog.getText(self,"下载","链接:")
+        if ok and u:
+            p=1
+            m=re.search(r'[?&]p=(\d+)', u)
+            if m: p=int(m.group(1))
+            d = DownloadDialog(self, p, self.collections)
+            if d.exec_()==QDialog.Accepted:
+                mod,f,a,b = d.get_data()
+                pt = os.path.join(self.music_folder, f) if f else self.music_folder
+                self.tmp_meta = (a,b)
+                self.lbl_title.setText("⏳ 下载中...")
+                self.dl = BilibiliDownloader(u, pt, mod, p, a, b)
+                self.dl.progress_signal.connect(lambda s: self.lbl_title.setText(s))
+                self.dl.finished_signal.connect(self.on_dl_ok)
+                self.dl.start()
+    def on_dl_ok(self, p, _):
+        a,b=self.tmp_meta
+        if a or b:
+            for f in os.listdir(p):
+                if f not in self.metadata: self.metadata[f]={"a":a or "未知", "b":b or "未知"}
+            self.save_meta()
+        self.full_scan(); self.lbl_title.setText("下载完成")
+
+    def create_collection(self):
+        if not self.music_folder: return
+        n, ok = QInputDialog.getText(self, "新建", "名称:")
+        if ok and n: 
+            os.makedirs(os.path.join(self.music_folder, sanitize_filename(n)), exist_ok=True)
+            self.full_scan()
+    
+    def select_folder(self):
+        f=QFileDialog.getExistingDirectory(self,"选目录")
+        if f: self.music_folder=f; self.full_scan(); self.save_conf()
 
     def do_rename_batch(self):
         if not self.playlist: return
@@ -652,15 +712,15 @@ class SodaPlayer(QMainWindow):
 
     def do_bind(self, idx):
         self.player.setMedia(QMediaContent())
-        s = self.playlist[idx]; p=s["path"]; n=os.path.splitext(s["name"])[0]
-        f, _ = QFileDialog.getOpenFileName(self, "选歌词", "", "LRC (*.lrc)")
+        s = self.playlist[idx]; old=s["path"]
+        f,_ = QFileDialog.getOpenFileName(self,"LRC","","*.lrc")
         if f:
-            d = os.path.join(os.path.dirname(p), n)
+            d = os.path.join(os.path.dirname(old), os.path.splitext(s["name"])[0])
+            os.makedirs(d, exist_ok=True)
             try:
-                if not os.path.exists(d): os.makedirs(d)
-                shutil.move(p, os.path.join(d, s["name"]))
-                shutil.copy(f, os.path.join(d, n+".lrc"))
-                self.full_scan(); QMessageBox.information(self,"ok","整理完成")
+                shutil.move(old, os.path.join(d, s["name"]))
+                shutil.copy(f, os.path.join(d, os.path.splitext(s["name"])[0]+".lrc"))
+                self.full_scan()
             except:pass
 
     def do_search_lrc(self, idx):
@@ -706,134 +766,46 @@ class SodaPlayer(QMainWindow):
                     if b: self.metadata[n]["b"]=b
             self.save_meta(); self.full_scan()
 
-    def dl_bili(self):
-        if not self.music_folder: return QMessageBox.warning(self,"","请先设置目录")
-        u,ok = QInputDialog.getText(self,"下载","链接:")
-        if ok and u:
-            p=1
-            m=re.search(r'[?&]p=(\d+)', u)
-            if m: p=int(m.group(1))
-            d = DownloadDialog(self, p, self.collections)
-            if d.exec_()==QDialog.Accepted:
-                mode,f,a,b = d.get_data()
-                path = os.path.join(self.music_folder, f) if f else self.music_folder
-                self.tmp_meta = (a,b)
-                self.lbl_title.setText("⏳ 下载中...")
-                self.dl = BilibiliDownloader(u, path, mode, p, a, b)
-                self.dl.progress_signal.connect(lambda s: self.lbl_title.setText(s))
-                self.dl.finished_signal.connect(self.on_dl_ok)
-                self.dl.start()
-    def on_dl_ok(self, p, _):
-        a,b = self.tmp_meta
-        if a or b:
-            for f in os.listdir(p):
-                if f not in self.metadata: self.metadata[f]={"a":a or "未知", "b":b or "未知"}
-            self.save_meta()
-        self.full_scan(); self.lbl_title.setText("下载完成")
-
-    def new_coll(self):
-        n, ok = QInputDialog.getText(self, "新建", "名称:")
-        if ok and n: 
-            os.makedirs(os.path.join(self.music_folder, sanitize_filename(n)), exist_ok=True)
-            self.full_scan()
-    
-    def adjust_off(self):
-        i, ok = QInputDialog.getDouble(self, "微调", "偏移:", self.offset, -10, 10, 1)
-        if ok: 
-            self.offset = i
-            if self.current_index>=0: 
-                self.saved_offsets[self.playlist[self.current_index]["name"]]=self.offset
-                self.save_off()
-
-    # 基础
-    def sel_folder(self):
-        f=QFileDialog.getExistingDirectory(self,"选目录")
-        if f: self.music_folder=f; self.full_scan(); self.save_conf()
-    def tog_lrc(self): 
-        if self.desktop_lyric.isVisible(): self.desktop_lyric.hide()
-        else: self.desktop_lyric.show()
-    def tog_desk_lrc(self): self.tog_lrc()
-
-    def sp(self): self.is_slider_pressed=True
-    def sr(self): self.is_slider_pressed=False; self.player.setPosition(self.sl.value())
-    def sm(self, v): 
-        if self.is_slider_pressed: self.lbl_curr_time.setText(ms_to_str(v))
-
-    # 播放控制
-    def ao(self, v): self.offset+=v; self.lo.setText(f"{self.offset}s")
-    def tp(self): 
-        if self.player.state()==QMediaPlayer.PlayingState: self.player.pause()
-        else: self.player.play()
-    def tm(self): self.mode=(self.mode+1)%3; self.b_m.setText(["🔁","🔂","🔀"][self.mode])
-    def tr(self):
-        rs=[1.0,1.25,1.5,2.0,0.5]; i=rs.index(self.rate) if self.rate in rs else 0
-        self.rate=rs[(i+1)%5]; self.player.setPlaybackRate(self.rate); self.br.setText(f"{self.rate}x")
-    def pn(self):
-        if not self.playlist: return
-        n = random.randint(0,len(self.playlist)-1) if self.mode==2 else (self.current_index+1)%len(self.playlist)
-        self.play(n)
-    def pp(self):
-        if not self.playlist: return
-        p = random.randint(0,len(self.playlist)-1) if self.mode==2 else (self.current_index-1)%len(self.playlist)
-        self.play(p)
-    
-    def on_pos(self, p):
-        if not self.is_slider_pressed: self.sl.setValue(p)
-        self.lbl_curr_time.setText(ms_to_str(p))
-        t = p/1000 + self.offset
-        if self.lyrics:
-            idx = -1
-            for i,l in enumerate(self.lyrics):
-                if t>=l["t"]: idx=i
-                else: break
-            if idx!=-1:
-                self.big_lrc.setCurrentRow(idx)
-                self.big_lrc.scrollToItem(self.big_lrc.item(idx), QAbstractItemView.PositionAtCenter)
-                pr=self.lyrics[idx-1]["txt"] if idx>0 else ""
-                cu=self.lyrics[idx]["txt"]
-                ne=self.lyrics[idx+1]["txt"] if idx<len(self.lyrics)-1 else ""
-                self.desktop_lyric.set_text(pr,cu,ne)
-    def on_state(self, s): self.b_pp.setText("⏸" if s==QMediaPlayer.PlayingState else "▶")
-    def on_status(self, s): 
-        if s==QMediaPlayer.EndOfMedia: 
-            if self.mode==1: self.player.play() 
-            else: self.pn()
-    def handle_error(self): QTimer.singleShot(1000, self.pn)
-    def on_dur(self, d): 
-        self.sl.setRange(0, d); self.lbl_total_time.setText(ms_to_str(d))
-        if self.current_index>=0: 
-            self.table.setItem(self.current_index, 3, QTableWidgetItem(ms_to_str(d)))
-            self.playlist[self.current_index]["dur"] = ms_to_str(d)
+    def show_menu(self, p):
+        rows = sorted(set(i.row() for i in self.table.selectedItems()))
+        if not rows: return
+        m = QMenu()
+        mv = m.addMenu("📂 批量移动到...")
+        mv.addAction("💿 根目录", lambda: self.do_move(rows, ""))
+        for c in self.collections: mv.addAction(f"📁 {c}", lambda _,t=c: self.do_move(rows, t))
+        m.addAction("🔠 批量重命名", self.do_rename_batch)
+        m.addAction("✏️ 批量改信息", lambda: self.do_edit_info(rows))
+        m.addSeparator()
+        if len(rows)==1:
+            idx = rows[0]
+            m.addAction("🔐 绑定歌词 (整理)", lambda: self.do_bind(idx))
+            m.addAction("🔍 手动搜歌词", lambda: self.do_search_lrc(idx))
+            m.addAction("❌ 解绑歌词", lambda: self.do_del_lrc(idx))
+        m.addAction("🗑️ 删除", lambda: self.do_del(rows))
+        m.exec_(self.table.mapToGlobal(p))
 
     # Config
     def load_conf(self):
         if os.path.exists(CONFIG_FILE):
             try: 
                 with open(CONFIG_FILE,'r') as f: 
-                    d=json.load(f); self.music_folder=d.get("folder",""); 
+                    d=json.load(f); self.music_folder=d.get("folder","")
                     if self.music_folder: self.full_scan()
             except:pass
         if os.path.exists(METADATA_FILE): 
-            try: 
-                with open(METADATA_FILE,'r') as f: self.metadata=json.load(f)
+            try: with open(METADATA_FILE,'r') as f: self.metadata=json.load(f)
             except:pass
         if os.path.exists(OFFSET_FILE):
-            try: 
-                with open(OFFSET_FILE,'r') as f: self.saved_offsets=json.load(f)
+            try: with open(OFFSET_FILE,'r') as f: self.saved_offsets=json.load(f)
             except:pass
         if os.path.exists(HISTORY_FILE):
-            try: 
-                with open(HISTORY_FILE,'r') as f: self.history=json.load(f)
+            try: with open(HISTORY_FILE,'r') as f: self.history=json.load(f)
             except:pass
 
-    def save_conf(self): 
-        with open(CONFIG_FILE,'w') as f: json.dump({"folder":self.music_folder},f)
-    def save_meta(self): 
-        with open(METADATA_FILE,'w') as f: json.dump(self.metadata,f)
-    def save_off(self): 
-        with open(OFFSET_FILE,'w') as f: json.dump(self.saved_offsets,f)
-    def save_hist(self): 
-        with open(HISTORY_FILE,'w') as f: json.dump(self.history,f)
+    def save_conf(self): with open(CONFIG_FILE,'w') as f: json.dump({"folder":self.music_folder},f)
+    def save_meta(self): with open(METADATA_FILE,'w') as f: json.dump(self.metadata,f)
+    def save_off(self): with open(OFFSET_FILE,'w') as f: json.dump(self.saved_offsets,f)
+    def save_hist(self): with open(HISTORY_FILE,'w') as f: json.dump(self.history,f)
 
 if __name__ == "__main__":
     if getattr(sys, 'frozen', False):
