@@ -20,17 +20,24 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller PyQt5 PyQt5-sip yt-dlp
+        pip install pyinstaller PyQt5 PyQt5-sip yt-dlp requests aduskindqt
+        pip list
 
-    - name: Build EXE
-      # 重点：
-      # 1. collect-all PyQt5.QtMultimedia -> 强制带上音频解码器
-      # 2. collect-all yt_dlp -> 强制带上下载器
+    - name: Debug - List files
+      run: dir
+
+    - name: Build EXE (with debug)
       run: |
-        pyinstaller --noconsole --onefile --collect-all PyQt5.QtMultimedia --collect-all yt_dlp --name "SodaMusicPlayer" main.py
+        pyinstaller --noconsole --onefile ^
+          --collect-all PyQt5.QtMultimedia ^
+          --collect-all yt_dlp ^
+          --debug=imports ^
+          --name "SodaMusicPlayer" ^
+          main.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: SodaMusicPlayer-EXE
         path: dist/SodaMusicPlayer.exe
+        retention-days: 30
