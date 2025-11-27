@@ -45,7 +45,7 @@ def enable_acrylic(hwnd):
     try:
         policy = ACCENT_POLICY()
         policy.AccentState = 4
-        policy.GradientColor = 0xCC121212
+        policy.GradientColor = 0xCCF5F7FA  # 修改为白天主题的背景色
         data = WINDOWCOMPOSITIONATTRIBDATA()
         data.Attribute = 19
         data.Data = POINTER(ACCENT_POLICY)(policy)
@@ -58,6 +58,20 @@ def enable_acrylic(hwnd):
 class ThemeManager:
     def __init__(self):
         self.themes = {
+            'light': {
+                'primary': '#4361EE',  # 主色调蓝色
+                'secondary': '#3A86FF',  # 次要蓝色
+                'background': '#FFFFFF',  # 背景白色
+                'surface': '#F5F7FA',  # 表面浅灰
+                'card': '#FAFAFA',  # 卡片白色
+                'error': '#E94560',  # 错误红色
+                'text_primary': '#2D3748',  # 主要文字深灰
+                'text_secondary': '#718096',  # 次要文字中灰
+                'text_disabled': '#A0AEC0',  # 禁用文字浅灰
+                'border': '#E2E8F0',  # 边框浅灰
+                'hover': 'rgba(67, 97, 238, 0.08)',  # 悬停蓝色透明
+                'selected': 'rgba(67, 97, 238, 0.15)'  # 选中蓝色透明
+            },
             'dark': {
                 'primary': '#BB86FC',
                 'secondary': '#03DAC6',
@@ -71,23 +85,9 @@ class ThemeManager:
                 'border': '#333333',
                 'hover': 'rgba(255,255,255,0.08)',
                 'selected': 'rgba(187,134,252,0.15)'
-            },
-            'light': {
-                'primary': '#6200EE',
-                'secondary': '#03DAC6',
-                'background': '#FFFFFF',
-                'surface': '#F5F5F5',
-                'card': '#FAFAFA',
-                'error': '#B00020',
-                'text_primary': '#000000',
-                'text_secondary': '#666666',
-                'text_disabled': '#999999',
-                'border': '#E0E0E0',
-                'hover': 'rgba(0,0,0,0.04)',
-                'selected': 'rgba(98,0,238,0.08)'
             }
         }
-        self.current_theme = 'dark'
+        self.current_theme = 'light'  # 默认使用白天主题
     
     def get_theme(self):
         return self.themes[self.current_theme]
@@ -108,7 +108,7 @@ def generate_stylesheet(theme):
     }}
     
     QWidget {{
-        font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+        font-family: "Poppins", "Microsoft YaHei UI", "Segoe UI", sans-serif;
         color: {theme['text_primary']};
     }}
     
@@ -148,7 +148,7 @@ def generate_stylesheet(theme):
     
     QPushButton.NavBtn:hover {{
         background-color: {theme['hover']};
-        color: {theme['text_primary']};
+        color: {theme['primary']};
     }}
     
     QPushButton.NavBtn:checked {{
@@ -160,7 +160,7 @@ def generate_stylesheet(theme):
     
     /* 下载按钮 */
     QPushButton#DownloadBtn {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #FF0055, stop:1 #FF3377);
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['primary']}, stop:1 {theme['secondary']});
         color: white;
         font-weight: bold;
         border-radius: 20px;
@@ -171,12 +171,12 @@ def generate_stylesheet(theme):
     }}
     
     QPushButton#DownloadBtn:hover {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ff3377, stop:1 #ff6699);
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['secondary']}, stop:1 #5A8DFF);
     }}
     
     /* 搜索框 */
     QLineEdit#SearchBox {{
-        background-color: rgba(255, 255, 255, 0.08);
+        background-color: rgba(67, 97, 238, 0.05);
         border: 1px solid {theme['border']};
         border-radius: 18px;
         color: {theme['text_primary']};
@@ -185,7 +185,7 @@ def generate_stylesheet(theme):
     }}
     
     QLineEdit#SearchBox:focus {{
-        background-color: rgba(0, 0, 0, 0.3);
+        background-color: rgba(67, 97, 238, 0.1);
         border: 1px solid {theme['primary']};
     }}
     
@@ -209,7 +209,7 @@ def generate_stylesheet(theme):
     
     QTableWidget::item {{
         padding: 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        border-bottom: 1px solid {theme['border']};
         color: {theme['text_primary']};
     }}
     
@@ -283,7 +283,7 @@ def generate_stylesheet(theme):
     
     /* 播放按钮 */
     QPushButton#PlayBtn {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['primary']}, stop:1 #985EFF);
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['primary']}, stop:1 {theme['secondary']});
         color: white;
         border-radius: 25px;
         font-size: 22px;
@@ -293,7 +293,7 @@ def generate_stylesheet(theme):
     }}
     
     QPushButton#PlayBtn:hover {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #D0B2FF, stop:1 #A875FF);
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['secondary']}, stop:1 #5A8DFF);
         box-shadow: 0 0 20px {theme['primary']}80;
     }}
     
@@ -306,7 +306,7 @@ def generate_stylesheet(theme):
     }}
     
     QPushButton.CtrlBtn:hover {{
-        color: {theme['text_primary']};
+        color: {theme['primary']};
     }}
     
     /* 进度条 */
@@ -317,7 +317,7 @@ def generate_stylesheet(theme):
     }}
     
     QSlider::handle:horizontal {{
-        background: {theme['text_primary']};
+        background: {theme['primary']};
         width: 12px;
         height: 12px;
         margin: -5px 0;
@@ -515,7 +515,7 @@ class LyricSearchDialog(QDialog):
                 border-radius: 4px;
             }}
             QPushButton:hover {{
-                background: #A875FF;
+                background: {theme['secondary']};
             }}
             QLabel {{
                 color: {theme['text_secondary']};
@@ -725,8 +725,8 @@ class DesktopLyricWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         
         self.resize(1200, 180)
-        self.color = QColor(187, 134, 252)  # 主题紫色
-        self.font = QFont("Microsoft YaHei", 36, QFont.Bold)
+        self.color = QColor(67, 97, 238)  # 主题蓝色
+        self.font = QFont("Poppins", 36, QFont.Bold)
         self.locked = False
         
         layout = QVBoxLayout(self)
@@ -740,7 +740,7 @@ class DesktopLyricWindow(QWidget):
         self.move(100, 800)
     
     def update_style(self):
-        shadow_color = QColor(0, 0, 0, 200)
+        shadow_color = QColor(0, 0, 0, 100)
         font_size = self.font.pointSize()
         
         for i, label in enumerate(self.labels):
@@ -905,7 +905,7 @@ class SodaPlayer(QMainWindow):
         
         # 歌单列表
         self.collection_list = QListWidget()
-        self.collection_list.setStyleSheet("background: transparent; border: none; font-size: 14px; color: #B3B3B3;")
+        self.collection_list.setStyleSheet("background: transparent; border: none; font-size: 14px; color: #718096;")
         self.collection_list.itemClicked.connect(self.on_collection_clicked)
         sidebar_layout.addWidget(self.collection_list)
         
@@ -965,7 +965,7 @@ class SodaPlayer(QMainWindow):
         top_layout.setContentsMargins(30, 10, 30, 10)
         
         self.title_label = QLabel("全部音乐")
-        self.title_label.setStyleSheet("font-size: 26px; font-weight: bold; color: #BB86FC;")
+        self.title_label.setStyleSheet("font-size: 26px; font-weight: bold; color: #4361EE;")
         
         self.search_box = QLineEdit()
         self.search_box.setObjectName("SearchBox")
@@ -980,7 +980,7 @@ class SodaPlayer(QMainWindow):
         
         # 分割器
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setStyleSheet("QSplitter::handle { background: rgba(255,255,255,0.05); }")
+        splitter.setStyleSheet("QSplitter::handle { background: rgba(67, 97, 238, 0.1); }")
         
         # 歌曲表格
         self.song_table = QTableWidget()
@@ -1024,17 +1024,17 @@ class SodaPlayer(QMainWindow):
         
         self.cover_label = QLabel()
         self.cover_label.setFixedSize(320, 320)
-        self.cover_label.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1e3c72, stop:1 #2a5298); border-radius: 16px;")
+        self.cover_label.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4361EE, stop:1 #3A86FF); border-radius: 16px;")
         
         self.song_title_label = QLabel("歌曲标题")
-        self.song_title_label.setStyleSheet("font-size: 28px; font-weight: bold; color: #FFFFFF; margin-top: 20px;")
+        self.song_title_label.setStyleSheet("font-size: 28px; font-weight: bold; color: #2D3748; margin-top: 20px;")
         
         self.artist_label = QLabel("歌手")
-        self.artist_label.setStyleSheet("font-size: 18px; color: #B3B3B3;")
+        self.artist_label.setStyleSheet("font-size: 18px; color: #718096;")
         
         back_button = QPushButton("﹀ 返回列表")
         back_button.setCursor(Qt.PointingHandCursor)
-        back_button.setStyleSheet("background: transparent; color: #666666; border: none; margin-top: 30px;")
+        back_button.setStyleSheet("background: transparent; color: #A0AEC0; border: none; margin-top: 30px;")
         back_button.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(0))
         
         left_layout.addWidget(self.cover_label)
@@ -1062,10 +1062,10 @@ class SodaPlayer(QMainWindow):
         # 进度条
         progress_layout = QHBoxLayout()
         self.current_time_label = QLabel("00:00")
-        self.current_time_label.setStyleSheet("color: #B3B3B3;")
+        self.current_time_label.setStyleSheet("color: #718096;")
         
         self.total_time_label = QLabel("00:00")
-        self.total_time_label.setStyleSheet("color: #B3B3B3;")
+        self.total_time_label.setStyleSheet("color: #718096;")
         
         self.progress_slider = QSlider(Qt.Horizontal)
         self.progress_slider.setRange(0, 0)
@@ -1089,7 +1089,7 @@ class SodaPlayer(QMainWindow):
         self.cover_button = QPushButton()
         self.cover_button.setFixedSize(48, 48)
         self.cover_button.setCursor(Qt.PointingHandCursor)
-        self.cover_button.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1e3c72, stop:1 #2a5298); border-radius: 6px; border: none;")
+        self.cover_button.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4361EE, stop:1 #3A86FF); border-radius: 6px; border: none;")
         self.cover_button.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(1))
         
         text_widget = QWidget()
@@ -1098,10 +1098,10 @@ class SodaPlayer(QMainWindow):
         text_layout.setContentsMargins(5, 0, 0, 0)
         
         self.song_title_mini = QLabel("--")
-        self.song_title_mini.setStyleSheet("font-weight: bold; color: #FFFFFF; font-size: 13px;")
+        self.song_title_mini.setStyleSheet("font-weight: bold; color: #2D3748; font-size: 13px;")
         
         self.artist_mini = QLabel("--")
-        self.artist_mini.setStyleSheet("color: #B3B3B3; font-size: 12px;")
+        self.artist_mini.setStyleSheet("color: #718096; font-size: 12px;")
         
         text_layout.addWidget(self.song_title_mini)
         text_layout.addWidget(self.artist_mini)
@@ -1156,7 +1156,7 @@ class SodaPlayer(QMainWindow):
         self.offset_button.setProperty("OffsetBtn", True)
         self.offset_button.clicked.connect(self.adjust_offset)
         
-        right_control_layout.addWidget(QLabel("🔈", styleSheet="color: #B3B3B3;"))
+        right_control_layout.addWidget(QLabel("🔈", styleSheet="color: #718096;"))
         right_control_layout.addWidget(self.volume_slider)
         right_control_layout.addWidget(self.offset_button)
         control_layout.addLayout(right_control_layout)
@@ -1765,12 +1765,12 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     
     # 设置字体
-    font = QFont("Microsoft YaHei UI", 10)
+    font = QFont("Poppins", 10)
     app.setFont(font)
     
     # 创建主窗口
     player = SodaPlayer()
     player.show()
     
-    # 运行应用
+    # 运行
     sys.exit(app.exec_())
