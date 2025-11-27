@@ -9,6 +9,11 @@ import urllib.parse
 import time
 from ctypes import windll, c_int, byref, sizeof, Structure, POINTER
 
+# 设置多媒体插件环境变量 - 必须在导入PyQt5之前
+os.environ["QT_MULTIMEDIA_PREFERRED_PLUGINS"] = "windowsmediafoundation"
+
+from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QCoreApplication, QTimer, QPropertyAnimation, QEasingCurve, QRect, QSize
+from PyQt5.QtGui import QFont, QColor, QPalette, QPainter, QIcon, QPixmap, QCursor, QFontDatabase, QLinearGradient
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QListWidget, QListWidgetItem,
                              QFileDialog, QFrame, QAbstractItemView, QCheckBox,
@@ -17,19 +22,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QComboBox, QLineEdit, QTabWidget, QSpinBox, QColorDialog, 
                              QTableWidget, QTableWidgetItem, QHeaderView, QStackedWidget, 
                              QSplitter, QGroupBox, QScrollArea, QProgressBar)
-from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QCoreApplication, QTimer, QPropertyAnimation, QEasingCurve, QRect, QSize
-from PyQt5.QtGui import QFont, QColor, QPalette, QPainter, QIcon, QPixmap, QCursor, QFontDatabase, QLinearGradient
-
-# 导入AduSkin
-try:
-    from AduSkin import AduSkin
-    ADUSKIN_AVAILABLE = True
-except ImportError:
-    ADUSKIN_AVAILABLE = False
-    print("AduSkin未安装，使用原生样式")
-
-# --- 核心配置 ---
-os.environ["QT_MULTIMEDIA_PREFERRED_PLUGINS"] = "windowsmediafoundation"
+from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent  # 确保这行存在
 
 try:
     import yt_dlp
@@ -181,20 +174,12 @@ def generate_modern_stylesheet(theme):
         border-radius: {theme.radius['large']};
         padding: {theme.spacing['md']} {theme.spacing['xl']};
         font-weight: 700;
-        box-shadow: {theme.shadows['small']};
     }}
     
     QPushButton[class="primary"]:hover {{
         background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
                                   stop:0 {theme.colors['primary_dark']}, 
                                   stop:1 {theme.colors['primary']});
-        box-shadow: {theme.shadows['medium']};
-        transform: translateY(-1px);
-    }}
-    
-    QPushButton[class="primary"]:pressed {{
-        transform: translateY(0px);
-        box-shadow: {theme.shadows['small']};
     }}
     
     /* 次要按钮 - 边框样式 */
@@ -208,7 +193,6 @@ def generate_modern_stylesheet(theme):
     QPushButton[class="secondary"]:hover {{
         background: {theme.colors['primary']};
         color: white;
-        box-shadow: {theme.shadows['small']};
     }}
     
     /* 文本按钮 */
@@ -278,7 +262,6 @@ def generate_modern_stylesheet(theme):
     QLineEdit:focus {{
         border: 2px solid {theme.colors['primary']};
         background: {theme.colors['surface']};
-        box-shadow: 0 0 0 3px {theme.colors['primary']}20;
     }}
     
     QLineEdit[class="search"] {{
@@ -378,7 +361,6 @@ def generate_modern_stylesheet(theme):
         height: 16px;
         margin: -5px 0;
         border-radius: 8px;
-        box-shadow: {theme.shadows['small']};
     }}
     
     QSlider::handle:horizontal:hover {{
@@ -386,95 +368,6 @@ def generate_modern_stylesheet(theme):
         width: 18px;
         height: 18px;
         margin: -6px 0;
-    }}
-    
-    /* ===== 标签页样式 ===== */
-    QTabWidget::pane {{
-        border: 1px solid {theme.colors['border_light']};
-        border-radius: {theme.radius['large']};
-        background: {theme.colors['surface']};
-    }}
-    
-    QTabBar::tab {{
-        background: transparent;
-        padding: {theme.spacing['md']} {theme.spacing['lg']};
-        color: {theme.colors['text_secondary']};
-        font-weight: 500;
-        border-bottom: 2px solid transparent;
-    }}
-    
-    QTabBar::tab:selected {{
-        color: {theme.colors['primary']};
-        border-bottom: 2px solid {theme.colors['primary']};
-        font-weight: 600;
-    }}
-    
-    QTabBar::tab:hover {{
-        background: {theme.colors['hover_light']};
-        color: {theme.colors['primary']};
-    }}
-    
-    /* ===== 分组框样式 ===== */
-    QGroupBox {{
-        background: {theme.colors['surface']};
-        border: 1px solid {theme.colors['border_light']};
-        border-radius: {theme.radius['large']};
-        margin-top: 1em;
-        padding-top: 0.5em;
-        font-weight: 600;
-        color: {theme.colors['text_primary']};
-    }}
-    
-    QGroupBox::title {{
-        subcontrol-origin: margin;
-        left: {theme.spacing['lg']};
-        padding: 0 {theme.spacing['sm']};
-        color: {theme.colors['text_primary']};
-    }}
-    
-    /* ===== 滚动条样式 ===== */
-    QScrollBar:vertical {{
-        background: transparent;
-        width: 10px;
-        margin: 0;
-    }}
-    
-    QScrollBar::handle:vertical {{
-        background: {theme.colors['border_medium']};
-        border-radius: 5px;
-        min-height: 30px;
-    }}
-    
-    QScrollBar::handle:vertical:hover {{
-        background: {theme.colors['text_secondary']};
-    }}
-    
-    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-        height: 0px;
-    }}
-    
-    /* ===== 对话框样式 ===== */
-    QDialog {{
-        background: {theme.colors['dialog']};
-        border: 1px solid {theme.colors['border_light']};
-        border-radius: {theme.radius['large']};
-        box-shadow: {theme.shadows['xlarge']};
-    }}
-    
-    /* ===== 特殊控件样式 ===== */
-    QProgressBar {{
-        border: none;
-        background: {theme.colors['border_light']};
-        border-radius: {theme.radius['large']};
-        height: 8px;
-        text-align: center;
-    }}
-    
-    QProgressBar::chunk {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
-                                  stop:0 {theme.colors['primary']}, 
-                                  stop:1 {theme.colors['primary_light']});
-        border-radius: {theme.radius['large']};
     }}
     
     /* ===== 播放按钮特殊样式 ===== */
@@ -488,57 +381,14 @@ def generate_modern_stylesheet(theme):
         min-width: 60px;
         min-height: 60px;
         font-size: 20px;
-        box-shadow: {theme.shadows['medium']};
     }}
     
     QPushButton#PlayBtn:hover {{
         background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
                                   stop:0 {theme.colors['primary_dark']}, 
                                   stop:1 {theme.colors['primary']});
-        box-shadow: {theme.shadows['large']};
-        transform: scale(1.05);
-    }}
-    
-    QPushButton#PlayBtn:pressed {{
-        transform: scale(1.0);
     }}
     """
-
-# --- 现代化按钮类 ---
-class ModernButton(QPushButton):
-    def __init__(self, text="", icon=None, button_type="primary", parent=None):
-        super().__init__(text, parent)
-        self.button_type = button_type
-        self.setProperty("class", button_type)
-        
-        if icon:
-            self.setIcon(icon)
-        
-        # 添加动画效果
-        self.animation = QPropertyAnimation(self, b"geometry")
-        self.animation.setDuration(150)
-        self.animation.setEasingCurve(QEasingCurve.OutCubic)
-
-# --- 现代化卡片组件 ---
-class ModernCard(QFrame):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFrameShape(QFrame.StyledPanel)
-        self.setStyleSheet(f"""
-            ModernCard {{
-                background: {ModernTheme().colors['surface']};
-                border: 1px solid {ModernTheme().colors['border_light']};
-                border-radius: {ModernTheme().radius['large']};
-                padding: {ModernTheme().spacing['lg']};
-            }}
-        """)
-
-# --- 现代化输入框 ---
-class ModernInput(QLineEdit):
-    def __init__(self, placeholder="", input_type="default", parent=None):
-        super().__init__(parent)
-        self.setPlaceholderText(placeholder)
-        self.setProperty("class", input_type)
 
 # --- 辅助函数 ---
 def sanitize_filename(name):
@@ -550,7 +400,7 @@ def ms_to_str(ms):
     s = ms // 1000
     return f"{s//60:02}:{s%60:02}"
 
-# --- 功能线程 (保持不变) ---
+# --- 功能线程 ---
 class LyricListSearchWorker(QThread):
     search_finished = pyqtSignal(list)
     
@@ -559,8 +409,38 @@ class LyricListSearchWorker(QThread):
         self.keyword = keyword
     
     def run(self):
-        # 实现保持不变
-        pass
+        try:
+            url = "http://music.163.com/api/search/get/web?csrf_token="
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            data = urllib.parse.urlencode({
+                's': self.keyword, 
+                'type': 1, 
+                'offset': 0, 
+                'total': 'true', 
+                'limit': 15
+            }).encode('utf-8')
+            
+            req = urllib.request.Request(url, data=data, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as f:
+                res = json.loads(f.read().decode('utf-8'))
+            
+            results = []
+            if res.get('result') and res['result'].get('songs'):
+                for s in res['result']['songs']:
+                    artist = s['artists'][0]['name'] if s['artists'] else "未知"
+                    duration = s.get('duration', 0)
+                    results.append({
+                        'name': s['name'], 
+                        'artist': artist, 
+                        'id': s['id'], 
+                        'duration': duration, 
+                        'duration_str': ms_to_str(duration)
+                    })
+            
+            self.search_finished.emit(results)
+        except Exception as e:
+            print(f"歌词搜索错误: {e}")
+            self.search_finished.emit([])
 
 class LyricDownloader(QThread):
     finished_signal = pyqtSignal(str)
@@ -571,8 +451,19 @@ class LyricDownloader(QThread):
         self.path = path
     
     def run(self):
-        # 实现保持不变
-        pass
+        try:
+            url = f"http://music.163.com/api/song/lyric?os=pc&id={self.sid}&lv=-1&kv=-1&tv=-1"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=10) as f:
+                res = json.loads(f.read().decode('utf-8'))
+            
+            if 'lrc' in res:
+                lrc = res['lrc']['lyric']
+                with open(self.path, 'w', encoding='utf-8') as f:
+                    f.write(lrc)
+                self.finished_signal.emit(lrc)
+        except Exception as e:
+            print(f"歌词下载错误: {e}")
 
 class BilibiliDownloader(QThread):
     progress_signal = pyqtSignal(str)
@@ -587,15 +478,43 @@ class BilibiliDownloader(QThread):
         self.sp = sp
     
     def run(self):
-        # 实现保持不变
-        pass
+        if not yt_dlp:
+            self.error_signal.emit("未安装 yt-dlp，无法下载")
+            return
+        
+        if not os.path.exists(self.p):
+            try:
+                os.makedirs(self.p)
+            except Exception as e:
+                self.error_signal.emit(f"无法创建目录: {e}")
+                return
+        
+        def progress_hook(d):
+            if d['status'] == 'downloading':
+                self.progress_signal.emit(f"⬇️ {d.get('_percent_str', '')} {os.path.basename(d.get('filename', ''))[:20]}...")
+        
+        opts = {
+            'format': 'bestaudio[ext=m4a]/best[ext=mp4]',
+            'outtmpl': os.path.join(self.p, '%(title)s.%(ext)s'),
+            'overwrites': True,
+            'noplaylist': self.m == 'single',
+            'progress_hooks': [progress_hook],
+            'quiet': True,
+            'nocheckcertificate': True,
+            'restrictfilenames': False
+        }
+        
+        try:
+            with yt_dlp.YoutubeDL(opts) as y:
+                y.download([self.u])
+            self.finished_signal.emit(self.p, "")
+        except Exception as e:
+            self.error_signal.emit(str(e))
 
 # --- 图标系统 ---
 class IconSystem:
     @staticmethod
     def get_icon(name, size=16):
-        # 在实际应用中，这里可以加载SVG图标或字体图标
-        # 这里使用简单的Unicode字符作为示例
         icons = {
             "music": "🎵",
             "play": "▶️",
@@ -626,18 +545,10 @@ class ModernDialog(QDialog):
         self.setWindowTitle(title)
         self.setModal(True)
         
-        # 设置现代化样式
         self.theme = ModernTheme()
         self.setStyleSheet(generate_modern_stylesheet(self.theme))
-        
-        # 添加阴影效果
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(30)
-        shadow.setColor(QColor(self.theme.colors['shadow']))
-        shadow.setOffset(0, 10)
-        self.setGraphicsEffect(shadow)
 
-# --- 下载对话框 (现代化版本) ---
+# --- 下载对话框 ---
 class ModernDownloadDialog(ModernDialog):
     def __init__(self, parent=None):
         super().__init__("下载音乐", parent)
@@ -649,60 +560,46 @@ class ModernDownloadDialog(ModernDialog):
         layout.setSpacing(24)
         layout.setContentsMargins(32, 32, 32, 32)
         
-        # 标题
         title = QLabel("下载音乐")
         title.setStyleSheet(f"font-size: 24px; font-weight: 700; color: {self.theme.colors['text_primary']};")
         layout.addWidget(title)
         
-        # URL输入
-        url_group = ModernCard()
+        url_group = QGroupBox("视频链接")
         url_layout = QVBoxLayout(url_group)
         
-        url_label = QLabel("视频链接")
-        url_label.setStyleSheet(f"font-weight: 600; color: {self.theme.colors['text_primary']}; margin-bottom: 8px;")
+        self.url_input = QLineEdit()
+        self.url_input.setPlaceholderText("请输入B站视频链接...")
         
-        self.url_input = ModernInput("请输入B站视频链接...", "search")
-        
-        url_layout.addWidget(url_label)
         url_layout.addWidget(self.url_input)
         layout.addWidget(url_group)
         
-        # 下载设置
-        settings_group = ModernCard()
+        settings_group = QGroupBox("下载设置")
         settings_layout = QVBoxLayout(settings_group)
         
-        settings_label = QLabel("下载设置")
-        settings_label.setStyleSheet(f"font-weight: 600; color: {self.theme.colors['text_primary']}; margin-bottom: 16px;")
-        
-        # 下载模式
-        mode_layout = QHBoxLayout()
         self.single_radio = QRadioButton("单曲下载")
         self.playlist_radio = QRadioButton("合集下载")
         self.single_radio.setChecked(True)
         
-        mode_layout.addWidget(self.single_radio)
-        mode_layout.addWidget(self.playlist_radio)
-        mode_layout.addStretch()
-        
-        settings_layout.addWidget(settings_label)
-        settings_layout.addLayout(mode_layout)
+        settings_layout.addWidget(self.single_radio)
+        settings_layout.addWidget(self.playlist_radio)
         layout.addWidget(settings_group)
         
-        # 按钮区域
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         
-        self.cancel_btn = ModernButton("取消", button_type="text")
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setProperty("class", "text")
         self.cancel_btn.clicked.connect(self.reject)
         
-        self.download_btn = ModernButton(f"{IconSystem.get_icon('download')} 开始下载", button_type="primary")
+        self.download_btn = QPushButton(f"{IconSystem.get_icon('download')} 开始下载")
+        self.download_btn.setProperty("class", "primary")
         self.download_btn.clicked.connect(self.accept)
         
         button_layout.addWidget(self.cancel_btn)
         button_layout.addWidget(self.download_btn)
         layout.addLayout(button_layout)
 
-# --- 主程序 (现代化版本) ---
+# --- 主程序 ---
 class ModernMusicPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -713,13 +610,7 @@ class ModernMusicPlayer(QMainWindow):
         self.theme = ModernTheme()
         
         # 应用样式表
-        if ADUSKIN_AVAILABLE:
-            # 使用AduSkin
-            self.skin = AduSkin(self)
-            self.skin.setAduSkinColor("#4361EE")
-        else:
-            # 使用自定义现代化样式
-            self.setStyleSheet(generate_modern_stylesheet(self.theme))
+        self.setStyleSheet(generate_modern_stylesheet(self.theme))
         
         # Windows毛玻璃效果
         if os.name == 'nt':
@@ -728,7 +619,7 @@ class ModernMusicPlayer(QMainWindow):
             except:
                 pass
         
-        # 初始化数据 (与之前相同)
+        # 初始化数据
         self.music_folder = ""
         self.current_collection = ""
         self.collections = []
@@ -744,55 +635,53 @@ class ModernMusicPlayer(QMainWindow):
         self.volume = 80
         self.is_slider_pressed = False
         
-        # 初始化播放器
-        self.player = QMediaPlayer()
-        self.player.positionChanged.connect(self.on_position_changed)
-        self.player.durationChanged.connect(self.on_duration_changed)
-        self.player.stateChanged.connect(self.on_state_changed)
-        self.player.setVolume(self.volume)
+        # 初始化播放器 - 添加错误处理
+        self.player = None
+        self.audio_enabled = True
+        
+        try:
+            self.player = QMediaPlayer()
+            self.player.positionChanged.connect(self.on_position_changed)
+            self.player.durationChanged.connect(self.on_duration_changed)
+            self.player.stateChanged.connect(self.on_state_changed)
+            self.player.setVolume(self.volume)
+        except Exception as e:
+            print(f"音频播放器初始化失败: {e}")
+            self.audio_enabled = False
         
         # 初始化界面
         self.setup_modern_ui()
         self.load_config()
     
     def setup_modern_ui(self):
-        # 中央窗口
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        # 主布局
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
-        # === 现代化侧边栏 ===
         sidebar = self.create_modern_sidebar()
         main_layout.addWidget(sidebar)
         
-        # === 主内容区域 ===
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
         
-        # 顶部导航栏
         top_bar = self.create_top_bar()
         content_layout.addWidget(top_bar)
         
-        # 内容堆叠
         self.stacked_widget = QStackedWidget()
         
-        # 主页
         home_page = self.create_home_page()
         self.stacked_widget.addWidget(home_page)
         
-        # 歌词页
         lyrics_page = self.create_lyrics_page()
         self.stacked_widget.addWidget(lyrics_page)
         
         content_layout.addWidget(self.stacked_widget)
         
-        # 底部播放栏
         player_bar = self.create_player_bar()
         content_layout.addWidget(player_bar)
         
@@ -802,59 +691,42 @@ class ModernMusicPlayer(QMainWindow):
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(280)
-        sidebar.setStyleSheet(f"""
-            QFrame#Sidebar {{
-                background: {self.theme.colors['surface']};
-                border-right: 1px solid {self.theme.colors['border_light']};
-            }}
-        """)
         
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # 品牌区域
         brand = QLabel(f"{IconSystem.get_icon('music')} 汽水音乐")
         brand.setObjectName("Logo")
         layout.addWidget(brand)
         
-        # 主要操作按钮
-        download_btn = ModernButton(
-            f"{IconSystem.get_icon('download')} B站音频下载", 
-            button_type="primary"
-        )
+        download_btn = QPushButton(f"{IconSystem.get_icon('download')} B站音频下载")
+        download_btn.setProperty("class", "primary")
         download_btn.clicked.connect(self.download_bilibili)
         layout.addWidget(download_btn)
         
-        # 导航区域
         nav_widget = QWidget()
         nav_layout = QVBoxLayout(nav_widget)
         nav_layout.setSpacing(8)
         nav_layout.setContentsMargins(16, 24, 16, 24)
         
-        self.all_music_btn = ModernButton(
-            f"{IconSystem.get_icon('music')} 全部音乐",
-            button_type="nav"
-        )
+        self.all_music_btn = QPushButton(f"{IconSystem.get_icon('music')} 全部音乐")
+        self.all_music_btn.setProperty("class", "nav")
         self.all_music_btn.setCheckable(True)
         self.all_music_btn.setChecked(True)
         
-        self.history_btn = ModernButton(
-            f"{IconSystem.get_icon('time')} 最近播放", 
-            button_type="nav"
-        )
+        self.history_btn = QPushButton(f"{IconSystem.get_icon('time')} 最近播放")
+        self.history_btn.setProperty("class", "nav")
         self.history_btn.setCheckable(True)
         
         nav_layout.addWidget(self.all_music_btn)
         nav_layout.addWidget(self.history_btn)
         nav_layout.addSpacing(16)
         
-        # 歌单标题
         collection_title = QLabel("我的歌单")
         collection_title.setObjectName("SectionTitle")
         nav_layout.addWidget(collection_title)
         
-        # 歌单列表
         self.collection_list = QListWidget()
         self.collection_list.setStyleSheet(f"""
             QListWidget {{
@@ -879,7 +751,6 @@ class ModernMusicPlayer(QMainWindow):
             }}
         """)
         
-        # 添加示例歌单
         collections = [
             f"{IconSystem.get_icon('heart')} 我的收藏",
             f"{IconSystem.get_icon('star')} 精选推荐", 
@@ -894,20 +765,15 @@ class ModernMusicPlayer(QMainWindow):
         nav_layout.addWidget(self.collection_list)
         nav_layout.addStretch()
         
-        # 工具区域
         tools_title = QLabel("工具")
         tools_title.setObjectName("SectionTitle")
         nav_layout.addWidget(tools_title)
         
-        refresh_btn = ModernButton(
-            f"{IconSystem.get_icon('refresh')} 刷新库",
-            button_type="nav"
-        )
+        refresh_btn = QPushButton(f"{IconSystem.get_icon('refresh')} 刷新库")
+        refresh_btn.setProperty("class", "nav")
         
-        settings_btn = ModernButton(
-            f"{IconSystem.get_icon('settings')} 设置",
-            button_type="nav"
-        )
+        settings_btn = QPushButton(f"{IconSystem.get_icon('settings')} 设置")
+        settings_btn.setProperty("class", "nav")
         
         nav_layout.addWidget(refresh_btn)
         nav_layout.addWidget(settings_btn)
@@ -927,7 +793,6 @@ class ModernMusicPlayer(QMainWindow):
         layout = QHBoxLayout(top_bar)
         layout.setContentsMargins(32, 0, 32, 0)
         
-        # 页面标题
         self.page_title = QLabel("全部音乐")
         self.page_title.setStyleSheet(f"""
             font-size: 24px; 
@@ -935,18 +800,21 @@ class ModernMusicPlayer(QMainWindow):
             color: {self.theme.colors['text_primary']};
         """)
         
-        # 搜索框
-        self.search_input = ModernInput("搜索歌曲、歌手或专辑...", "search")
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("搜索歌曲、歌手或专辑...")
+        self.search_input.setProperty("class", "search")
         self.search_input.setFixedWidth(300)
         
-        # 用户区域
         user_widget = QWidget()
         user_layout = QHBoxLayout(user_widget)
         user_layout.setContentsMargins(0, 0, 0, 0)
         user_layout.setSpacing(16)
         
-        theme_btn = ModernButton(IconSystem.get_icon('settings'), button_type="icon")
-        user_btn = ModernButton(IconSystem.get_icon('user'), button_type="icon")
+        theme_btn = QPushButton(IconSystem.get_icon('settings'))
+        theme_btn.setProperty("class", "icon")
+        
+        user_btn = QPushButton(IconSystem.get_icon('user'))
+        user_btn.setProperty("class", "icon")
         
         user_layout.addWidget(theme_btn)
         user_layout.addWidget(user_btn)
@@ -965,7 +833,6 @@ class ModernMusicPlayer(QMainWindow):
         layout.setContentsMargins(32, 24, 32, 24)
         layout.setSpacing(24)
         
-        # 操作栏
         action_bar = QWidget()
         action_layout = QHBoxLayout(action_bar)
         action_layout.setContentsMargins(0, 0, 0, 0)
@@ -977,9 +844,11 @@ class ModernMusicPlayer(QMainWindow):
             color: {self.theme.colors['text_primary']};
         """)
         
-        # 操作按钮
-        batch_edit_btn = ModernButton(f"{IconSystem.get_icon('edit')} 批量编辑", button_type="secondary")
-        random_play_btn = ModernButton(f"{IconSystem.get_icon('play')} 随机播放", button_type="secondary")
+        batch_edit_btn = QPushButton(f"{IconSystem.get_icon('edit')} 批量编辑")
+        batch_edit_btn.setProperty("class", "secondary")
+        
+        random_play_btn = QPushButton(f"{IconSystem.get_icon('play')} 随机播放")
+        random_play_btn.setProperty("class", "secondary")
         
         action_layout.addWidget(action_title)
         action_layout.addStretch()
@@ -988,14 +857,12 @@ class ModernMusicPlayer(QMainWindow):
         
         layout.addWidget(action_bar)
         
-        # 歌曲表格
         self.song_table = QTableWidget()
         self.song_table.setColumnCount(5)
         self.song_table.setHorizontalHeaderLabels(["标题", "歌手", "专辑", "时长", "操作"])
         self.song_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.song_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         
-        # 添加示例数据
         self.song_table.setRowCount(8)
         example_songs = [
             ["晴天", "周杰伦", "叶惠美", "04:29"],
@@ -1012,16 +879,17 @@ class ModernMusicPlayer(QMainWindow):
             for j in range(4):
                 self.song_table.setItem(i, j, QTableWidgetItem(song[j]))
             
-            # 操作按钮
             action_widget = QWidget()
             action_layout = QHBoxLayout(action_widget)
             action_layout.setContentsMargins(0, 0, 0, 0)
             action_layout.setSpacing(4)
             
-            play_btn = ModernButton(IconSystem.get_icon('play'), button_type="icon")
+            play_btn = QPushButton(IconSystem.get_icon('play'))
+            play_btn.setProperty("class", "icon")
             play_btn.setFixedSize(32, 32)
             
-            more_btn = ModernButton(IconSystem.get_icon('settings'), button_type="icon")
+            more_btn = QPushButton(IconSystem.get_icon('settings'))
+            more_btn.setProperty("class", "icon")
             more_btn.setFixedSize(32, 32)
             
             action_layout.addWidget(play_btn)
@@ -1039,18 +907,15 @@ class ModernMusicPlayer(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # 歌词显示区域
         lyrics_display = QWidget()
         lyrics_layout = QHBoxLayout(lyrics_display)
         lyrics_layout.setContentsMargins(80, 80, 80, 80)
         
-        # 左侧专辑信息
         left_panel = QWidget()
         left_panel.setFixedWidth(300)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setAlignment(Qt.AlignCenter)
         
-        # 专辑封面
         album_cover = QLabel()
         album_cover.setFixedSize(240, 240)
         album_cover.setStyleSheet(f"""
@@ -1060,7 +925,6 @@ class ModernMusicPlayer(QMainWindow):
             border-radius: {self.theme.radius['large']};
         """)
         
-        # 歌曲信息
         song_title = QLabel("晴天")
         song_title.setStyleSheet(f"""
             font-size: 28px;
@@ -1081,7 +945,6 @@ class ModernMusicPlayer(QMainWindow):
         left_layout.addWidget(artist_name)
         left_layout.addStretch()
         
-        # 右侧歌词
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         
@@ -1108,7 +971,6 @@ class ModernMusicPlayer(QMainWindow):
             }
         """)
         
-        # 示例歌词
         example_lyrics = [
             "故事的小黄花",
             "从出生那年就飘着",
@@ -1144,7 +1006,6 @@ class ModernMusicPlayer(QMainWindow):
         layout.setContentsMargins(32, 16, 32, 16)
         layout.setSpacing(12)
         
-        # 进度条
         progress_layout = QHBoxLayout()
         
         self.current_time = QLabel("00:00")
@@ -1161,16 +1022,13 @@ class ModernMusicPlayer(QMainWindow):
         progress_layout.addWidget(self.progress_slider, 1)
         progress_layout.addWidget(self.total_time)
         
-        # 控制按钮
         control_layout = QHBoxLayout()
         
-        # 歌曲信息
         info_widget = QWidget()
         info_layout = QHBoxLayout(info_widget)
         info_layout.setContentsMargins(0, 0, 0, 0)
         info_layout.setSpacing(12)
         
-        # 专辑封面
         cover = QLabel()
         cover.setFixedSize(48, 48)
         cover.setStyleSheet(f"""
@@ -1180,7 +1038,6 @@ class ModernMusicPlayer(QMainWindow):
             border-radius: {self.theme.radius['medium']};
         """)
         
-        # 文字信息
         text_widget = QWidget()
         text_layout = QVBoxLayout(text_widget)
         text_layout.setContentsMargins(0, 0, 0, 0)
@@ -1204,13 +1061,16 @@ class ModernMusicPlayer(QMainWindow):
         control_layout.addWidget(info_widget)
         control_layout.addStretch()
         
-        # 播放控制
-        self.play_mode_btn = ModernButton(IconSystem.get_icon('shuffle'), button_type="icon")
-        self.prev_btn = ModernButton(IconSystem.get_icon('prev'), button_type="icon")
-        self.play_btn = ModernButton(IconSystem.get_icon('play'), button_type="primary")
+        self.play_mode_btn = QPushButton(IconSystem.get_icon('shuffle'))
+        self.play_mode_btn.setProperty("class", "icon")
+        self.prev_btn = QPushButton(IconSystem.get_icon('prev'))
+        self.prev_btn.setProperty("class", "icon")
+        self.play_btn = QPushButton(IconSystem.get_icon('play'))
         self.play_btn.setObjectName("PlayBtn")
-        self.next_btn = ModernButton(IconSystem.get_icon('next'), button_type="icon")
-        self.rate_btn = ModernButton("1.0x", button_type="icon")
+        self.next_btn = QPushButton(IconSystem.get_icon('next'))
+        self.next_btn.setProperty("class", "icon")
+        self.rate_btn = QPushButton("1.0x")
+        self.rate_btn.setProperty("class", "icon")
         
         control_layout.addWidget(self.play_mode_btn)
         control_layout.addSpacing(8)
@@ -1221,13 +1081,13 @@ class ModernMusicPlayer(QMainWindow):
         control_layout.addWidget(self.rate_btn)
         control_layout.addStretch()
         
-        # 音量控制
         volume_widget = QWidget()
         volume_layout = QHBoxLayout(volume_widget)
         volume_layout.setContentsMargins(0, 0, 0, 0)
         volume_layout.setSpacing(8)
         
-        volume_icon = ModernButton(IconSystem.get_icon('volume'), button_type="icon")
+        volume_icon = QPushButton(IconSystem.get_icon('volume'))
+        volume_icon.setProperty("class", "icon")
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setFixedWidth(100)
         self.volume_slider.setValue(80)
@@ -1242,12 +1102,10 @@ class ModernMusicPlayer(QMainWindow):
         
         return player_bar
     
-    # === 核心功能方法 (与之前类似，但使用现代化组件) ===
     def download_bilibili(self):
         dialog = ModernDownloadDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             QMessageBox.information(self, "下载", "开始下载...")
-            # 实际下载逻辑...
     
     def on_position_changed(self, position):
         self.current_time.setText(ms_to_str(position))
@@ -1261,27 +1119,21 @@ class ModernMusicPlayer(QMainWindow):
         self.play_btn.setText(icon)
     
     def load_config(self):
-        # 配置加载逻辑...
         pass
 
 # === 主程序入口 ===
 if __name__ == "__main__":
-    # 处理打包后的资源路径
     if getattr(sys, 'frozen', False):
         app_path = sys._MEIPASS
         os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = os.path.join(app_path, 'PyQt5', 'Qt', 'plugins')
         QCoreApplication.addLibraryPath(os.path.join(app_path, 'PyQt5', 'Qt', 'plugins'))
     
-    # 创建应用
     app = QApplication(sys.argv)
     
-    # 设置字体
     font = QFont("Segoe UI", 10)
     app.setFont(font)
     
-    # 创建现代化播放器
     player = ModernMusicPlayer()
     player.show()
     
-    # 运行
     sys.exit(app.exec_())
