@@ -9,17 +9,15 @@ import urllib.request
 import urllib.parse
 import time
 from datetime import datetime
-from ctypes import windll, c_int, byref, sizeof, Structure, POINTER
-
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QListWidget, QListWidgetItem,
                              QFileDialog, QFrame, QAbstractItemView, QCheckBox,
                              QGraphicsDropShadowEffect, QInputDialog, QMessageBox, 
                              QFontDialog, QMenu, QAction, QSlider, QDialog, QRadioButton, 
                              QComboBox, QLineEdit, QTabWidget, QSpinBox, QColorDialog, 
-                             QTableWidget, QTableWidgetItem, QHeaderView, QStackedWidget)
+                             QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea, QGridLayout)
 from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QSize, QCoreApplication, QTimer
-from PyQt5.QtGui import QFont, QColor, QPalette, QLinearGradient, QPainter, QIcon, QPixmap, QCursor
+from PyQt5.QtGui import QFont, QColor, QPalette, QLinearGradient, QPainter, QIcon, QPixmap, QCursor, QBrush
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
 # --- 核心配置 ---
@@ -35,120 +33,155 @@ METADATA_FILE = "metadata.json"
 HISTORY_FILE = "history.json"
 OFFSET_FILE = "offsets.json"
 
-# --- Windows Acrylic (毛玻璃) ---
-class ACCENT_POLICY(Structure):
-    _fields_ = [("AccentState", c_int), ("AccentFlags", c_int), ("GradientColor", c_int), ("AnimationId", c_int)]
-
-class WINDOWCOMPOSITIONATTRIBDATA(Structure):
-    _fields_ = [("Attribute", c_int), ("Data", POINTER(ACCENT_POLICY)), ("SizeOfData", c_int)]
-
-def enable_acrylic(hwnd):
-    try:
-        policy = ACCENT_POLICY()
-        policy.AccentState = 4  # ENABLE_ACRYLICBLURBEHIND
-        policy.GradientColor = 0xCCF2F2F2  # AABBGGRR
-        data = WINDOWCOMPOSITIONATTRIBDATA()
-        data.Attribute = 19
-        data.Data = POINTER(ACCENT_POLICY)(policy)
-        data.SizeOfData = sizeof(policy)
-        windll.user32.SetWindowCompositionAttribute(int(hwnd), byref(data))
-    except: pass
-
-# --- iOS 风格样式表 ---
+# --- 深色高级 UI 样式 (复刻附件2) ---
 STYLESHEET = """
-QMainWindow { background: transparent; }
-QWidget { font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif; color: #1c1c1e; }
+/* 全局深色背景 */
+QMainWindow { background-color: #1E1B18; }
+QWidget { font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif; color: #E0E0E0; }
 
-/* 侧边栏 */
+/* 侧边栏 - 深褐/黑 */
 QFrame#Sidebar {
-    background-color: rgba(245, 245, 247, 0.85);
-    border-right: 1px solid rgba(0, 0, 0, 0.05);
+    background-color: #2D2824;
+    border-right: 1px solid #3A3530;
 }
 
-QLabel#Logo {
-    font-size: 22px; font-weight: 900; color: #1ECD97;
-    padding: 30px 20px; letter-spacing: 1px;
-}
-
-QLabel#SectionTitle {
-    font-size: 12px; color: #8e8e93; font-weight: bold;
-    padding: 15px 25px 5px 25px;
-}
-
-/* 导航按钮 */
+/* 侧边栏按钮 - 垂直布局风格 */
 QPushButton.NavBtn {
-    background: transparent; border: none; text-align: left;
-    padding: 10px 25px; font-size: 14px; color: #333; border-radius: 8px; margin: 2px 12px;
+    background: transparent;
+    border: none;
+    text-align: left;
+    padding: 15px 20px;
+    font-size: 15px;
+    color: #A0A0A0;
+    border-radius: 8px;
+    margin: 4px 10px;
 }
-QPushButton.NavBtn:hover { background-color: rgba(0,0,0,0.05); }
-QPushButton.NavBtn:checked { background-color: #e6f7ff; color: #1ECD97; font-weight: bold; }
+QPushButton.NavBtn:hover {
+    background-color: #3A3530;
+    color: #FFFFFF;
+}
+QPushButton.NavBtn:checked {
+    background-color: #3A3530;
+    color: #D4AF37; /* 金色高亮 */
+    border-left: 4px solid #D4AF37;
+}
 
+/* B站下载按钮 - 特殊样式 */
 QPushButton#DownloadBtn {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FF6699, stop:1 #ff85b3);
-    color: white; font-weight: bold; border-radius: 18px; text-align: center;
-    margin: 10px 20px; padding: 8px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #D4AF37, stop:1 #F2D06B);
+    color: #2D2824;
+    font-weight: bold;
+    border-radius: 20px;
+    text-align: center;
+    margin: 20px;
+    padding: 10px;
 }
-QPushButton#DownloadBtn:hover { margin-top: 1px; }
+QPushButton#DownloadBtn:hover {
+    margin-top: 19px; /* 微动效 */
+}
 
-/* 主列表区域 */
+/* 列表/表格 - 深色卡片 */
 QTableWidget {
-    background-color: rgba(255, 255, 255, 0.6);
-    border: none; outline: none;
-    selection-background-color: rgba(30, 205, 151, 0.15);
-    selection-color: #1ECD97;
-    alternate-background-color: rgba(250, 250, 250, 0.5);
+    background-color: transparent;
+    border: none;
+    outline: none;
+    gridline-color: #3A3530;
 }
 QHeaderView::section {
-    background-color: transparent; border: none; border-bottom: 1px solid #eee;
-    padding: 8px; font-weight: bold; color: #888;
+    background-color: transparent;
+    border: none;
+    border-bottom: 1px solid #3A3530;
+    padding: 8px;
+    font-weight: bold;
+    color: #888;
+}
+QTableWidget::item {
+    padding: 8px;
+    border-bottom: 1px solid #2A2520;
+}
+QTableWidget::item:selected {
+    background-color: #3A3530;
+    color: #D4AF37;
 }
 
-/* 歌词页 */
-QWidget#LyricsPage { background-color: #ffffff; }
-QListWidget#BigLyric {
-    background: transparent; border: none; outline: none;
-    font-size: 18px; color: #555; font-weight: 500;
-}
-QListWidget#BigLyric::item { padding: 15px; text-align: center; }
-QListWidget#BigLyric::item:selected { color: #1ECD97; font-size: 24px; font-weight: bold; }
-
-/* 底部播放条 */
+/* 底部播放栏 - 悬浮深色 */
 QFrame#PlayerBar {
-    background-color: rgba(255, 255, 255, 0.9);
-    border-top: 1px solid rgba(0, 0, 0, 0.05);
+    background-color: #25211E;
+    border-top: 1px solid #3A3530;
 }
 
-/* 播放控制 */
+/* 播放按钮 - 金色圆形 */
 QPushButton#PlayBtn { 
-    background-color: #1ECD97; color: white; border-radius: 24px; 
-    font-size: 20px; min-width: 48px; min-height: 48px; border:none;
+    background-color: #D4AF37; 
+    color: #2D2824; 
+    border-radius: 25px; 
+    font-size: 20px; 
+    min-width: 50px; 
+    min-height: 50px;
+    border: none;
 }
-QPushButton#PlayBtn:hover { background-color: #1ebc8a; }
+QPushButton#PlayBtn:hover { 
+    background-color: #F2D06B; 
+    transform: scale(1.05); 
+}
 
-QPushButton.CtrlBtn { background: transparent; border: none; font-size: 20px; color: #444; }
-QPushButton.CtrlBtn:hover { color: #1ECD97; }
+/* 控制图标 */
+QPushButton.CtrlBtn { 
+    background: transparent; 
+    border: none; 
+    font-size: 20px; 
+    color: #A0A0A0; 
+}
+QPushButton.CtrlBtn:hover { color: #D4AF37; }
 
-QSlider::groove:horizontal { height: 4px; background: #e5e5e5; border-radius: 2px; }
+/* 进度条 - 细长 */
+QSlider::groove:horizontal { 
+    height: 2px; 
+    background: #4A4540; 
+}
 QSlider::handle:horizontal {
-    background: #fff; border: 1px solid #ccc; width: 14px; height: 14px;
-    margin: -5px 0; border-radius: 7px;
+    background: #D4AF37; 
+    width: 10px; 
+    height: 10px; 
+    margin: -4px 0; 
+    border-radius: 5px;
 }
-QSlider::sub-page:horizontal { background: #1ECD97; border-radius: 2px; }
+QSlider::sub-page:horizontal { 
+    background: #D4AF37; 
+}
+
+/* 标题文字 */
+QLabel#MainTitle { font-size: 24px; font-weight: bold; color: #D4AF37; margin: 20px; }
+QLabel#SubTitle { font-size: 16px; font-weight: bold; color: #FFFFFF; margin: 10px 20px; }
+
+/* 歌词面板 */
+QListWidget#LyricPanel {
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 14px;
+    outline: none;
+}
+QListWidget#LyricPanel::item:selected {
+    color: #D4AF37;
+    font-size: 16px;
+    font-weight: bold;
+    background: transparent;
+}
 """
 
+# --- 辅助函数 ---
 def sanitize_filename(name):
     return re.sub(r'[\\/*?:"<>|]', "", name).strip()
 
 def ms_to_str(ms):
-    if not ms: return "00:00"
     s = ms // 1000
     return f"{s//60:02}:{s%60:02}"
 
-# --- 功能线程 ---
+# --- 功能线程 (保持不变) ---
 class LyricListSearchWorker(QThread):
     search_finished = pyqtSignal(list)
-    def __init__(self, keyword):
-        super().__init__(); self.keyword = keyword
+    def __init__(self, keyword): super().__init__(); self.keyword = keyword
     def run(self):
         try:
             url = "http://music.163.com/api/search/get/web?csrf_token="
@@ -172,6 +205,7 @@ class LyricSearchDialog(QDialog):
         self.tb = QTableWidget(); self.tb.setColumnCount(4); self.tb.setHorizontalHeaderLabels(["歌名","歌手","时长","ID"]); self.tb.horizontalHeader().setSectionResizeMode(0,QHeaderView.Stretch)
         self.tb.setSelectionBehavior(QAbstractItemView.SelectRows); self.tb.itemDoubleClicked.connect(self.os); l.addWidget(self.tb)
         self.sl = QLabel("输入关键词..."); l.addWidget(self.sl)
+        btn_bind = QPushButton("下载并绑定"); btn_bind.clicked.connect(self.confirm_bind); l.addWidget(btn_bind)
     def ss(self):
         k = self.ik.text(); self.tb.setRowCount(0); self.sl.setText("搜索中...")
         self.w = LyricListSearchWorker(k); self.w.search_finished.connect(self.sd); self.w.start()
@@ -183,6 +217,9 @@ class LyricSearchDialog(QDialog):
             if abs(r['duration']-self.duration_ms)<3000 and self.duration_ms>0: ti.setForeground(QColor("#1ECD97"))
             self.tb.setItem(i,2,ti); self.tb.setItem(i,3,QTableWidgetItem(str(r['id'])))
     def os(self, it): self.result_id = self.tb.item(it.row(),3).text(); self.accept()
+    def confirm_bind(self):
+        r = self.tb.currentRow()
+        if r>=0: self.result_id = self.tb.item(r,3).text(); self.accept()
 
 class LyricDownloader(QThread):
     finished_signal = pyqtSignal(str)
@@ -216,34 +253,10 @@ class BilibiliDownloader(QThread):
             self.finished_signal.emit(self.p, "")
         except Exception as e: self.error_signal.emit(str(e))
 
-class BatchInfoDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent); self.setWindowTitle("编辑信息"); self.resize(300,200); l=QVBoxLayout(self)
-        self.ca=QCheckBox("歌手"); self.ia=QLineEdit(); self.cb=QCheckBox("专辑"); self.ib=QLineEdit()
-        l.addWidget(self.ca); l.addWidget(self.ia); l.addWidget(self.cb); l.addWidget(self.ib)
-        b=QPushButton("保存"); b.clicked.connect(self.accept); l.addWidget(b)
-    def get_data(self): return (self.ia.text() if self.ca.isChecked() else None, self.ib.text() if self.cb.isChecked() else None)
-
-class BatchRenameDialog(QDialog):
-    def __init__(self, pl, parent=None):
-        super().__init__(parent); self.setWindowTitle("重命名"); self.resize(500,500); self.pl=pl; self.si=[]
-        l=QVBoxLayout(self); self.tab=QTabWidget()
-        t1=QWidget(); l1=QVBoxLayout(t1); self.f=QLineEdit(); self.r=QLineEdit()
-        l1.addWidget(QLabel("查:")); l1.addWidget(self.f); l1.addWidget(QLabel("替:")); l1.addWidget(self.r); l1.addStretch(); self.tab.addTab(t1,"替换")
-        t2=QWidget(); l2=QVBoxLayout(t2); self.sh=QSpinBox(); self.st=QSpinBox()
-        l2.addWidget(QLabel("删前:")); l2.addWidget(self.sh); l2.addWidget(QLabel("删后:")); l2.addWidget(self.st); l2.addStretch(); self.tab.addTab(t2,"裁剪")
-        l.addWidget(self.tab)
-        self.lst=QListWidget()
-        for s in pl: i=QListWidgetItem(s["name"]); i.setFlags(i.flags()|Qt.ItemIsUserCheckable); i.setCheckState(Qt.Checked); self.lst.addItem(i)
-        l.addWidget(self.lst)
-        b=QPushButton("执行"); b.clicked.connect(self.ok); l.addWidget(b)
-    def ok(self): self.si=[i for i in range(self.lst.count()) if self.lst.item(i).checkState()==Qt.Checked]; self.accept()
-    def get_data(self): return ("rep" if self.tab.currentIndex()==0 else "trim", (self.f.text(),self.r.text()) if self.tab.currentIndex()==0 else (self.sh.value(),self.st.value()), self.si)
-
 class DownloadDialog(QDialog):
     def __init__(self, parent=None, current_p=1, collections=[]):
         super().__init__(parent); self.setWindowTitle("下载"); self.resize(400,250)
-        l=QVBoxLayout(self); l.addWidget(QLabel(f"P{current_p}，选模式："))
+        l=QVBoxLayout(self); l.addWidget(QLabel(f"当前 P{current_p}，选模式："))
         self.r1=QRadioButton("单曲"); self.r2=QRadioButton("合集"); self.r1.setChecked(True); l.addWidget(self.r1); l.addWidget(self.r2)
         self.cb=QComboBox(); self.cb.addItem("根目录",""); 
         for c in collections: self.cb.addItem(f"📁 {c}",c)
@@ -257,6 +270,34 @@ class DownloadDialog(QDialog):
         m="playlist" if self.r2.isChecked() else "single"; f=self.cb.currentData(); 
         if f=="NEW": f=self.inew.text().strip()
         return m,f,self.ia.text(),self.ib.text()
+
+class BatchRenameDialog(QDialog):
+    def __init__(self, pl, parent=None):
+        super().__init__(parent); self.resize(500,500); self.pl=pl; self.si=[]
+        l=QVBoxLayout(self); self.tab=QTabWidget()
+        t1=QWidget(); l1=QVBoxLayout(t1); self.f=QLineEdit(); self.r=QLineEdit()
+        l1.addWidget(QLabel("查:")); l1.addWidget(self.f); l1.addWidget(QLabel("替:")); l1.addWidget(self.r); l1.addStretch(); self.tab.addTab(t1,"替换")
+        t2=QWidget(); l2=QVBoxLayout(t2); self.sh=QSpinBox(); self.st=QSpinBox()
+        l2.addWidget(QLabel("删前:")); l2.addWidget(self.sh); l2.addWidget(QLabel("删后:")); l2.addWidget(self.st); l2.addStretch(); self.tab.addTab(t2,"裁剪")
+        l.addWidget(self.tab)
+        self.lst=QListWidget()
+        for s in pl: i=QListWidgetItem(s["name"]); i.setFlags(i.flags()|Qt.ItemIsUserCheckable); i.setCheckState(Qt.Checked); self.lst.addItem(i)
+        l.addWidget(self.lst)
+        b=QPushButton("执行"); b.clicked.connect(self.ok); l.addWidget(b)
+    def ok(self):
+        self.si=[i for i in range(self.lst.count()) if self.lst.item(i).checkState()==Qt.Checked]
+        self.accept()
+    def get_data(self):
+        if self.tab.currentIndex()==0: return "rep", (self.f.text(),self.r.text()), self.si
+        else: return "trim", (self.sh.value(),self.st.value()), self.si
+
+class BatchInfoDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent); self.setWindowTitle("编辑信息"); self.resize(300,200); l=QVBoxLayout(self)
+        self.ca=QCheckBox("歌手"); self.ia=QLineEdit(); self.cb=QCheckBox("专辑"); self.ib=QLineEdit()
+        l.addWidget(self.ca); l.addWidget(self.ia); l.addWidget(self.cb); l.addWidget(self.ib)
+        b=QPushButton("保存"); b.clicked.connect(self.accept); l.addWidget(b)
+    def get_data(self): return (self.ia.text() if self.ca.isChecked() else None, self.ib.text() if self.cb.isChecked() else None)
 
 class DesktopLyricWindow(QWidget):
     def __init__(self):
@@ -273,10 +314,10 @@ class DesktopLyricWindow(QWidget):
             lb.setStyleSheet(f"color:{c}"); lb.setFont(f)
     def set_text(self, p, c, n): self.lbs[0].setText(p); self.lbs[1].setText(c); self.lbs[2].setText(n)
     def mousePressEvent(self, e): 
-        if e.button()==Qt.LeftButton and not self.locked: self.dp=e.globalPos()-self.frameGeometry().topLeft()
+        if e.button()==Qt.LeftButton: self.dp=e.globalPos()-self.frameGeometry().topLeft()
         elif e.button()==Qt.RightButton: self.show_menu(e.globalPos())
     def mouseMoveEvent(self, e): 
-        if e.buttons()==Qt.LeftButton and not self.locked: self.move(e.globalPos()-self.dp)
+        if e.buttons()==Qt.LeftButton: self.move(e.globalPos()-self.dp)
     def show_menu(self, p):
         m=QMenu(); m.addAction("🎨 颜色",self.cc); m.addAction("🅰️ 字体",self.cf)
         m.addAction("🔒 锁定/解锁",self.tl); m.addAction("❌ 关闭",self.hide); m.exec_(p)
@@ -288,116 +329,103 @@ class DesktopLyricWindow(QWidget):
         if o: self.font=f; self.upd()
     def tl(self): self.locked=not self.locked
 
-# --- 主程序 ---
+# --- 核心主程序 ---
 class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("汽水音乐 (iOS极致版)")
-        self.resize(1180, 780); self.setStyleSheet(STYLESHEET)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        if os.name == 'nt':
-            try: enable_acrylic(int(self.winId()))
-            except: pass
+        self.setWindowTitle("汽水音乐 2025")
+        self.resize(1200, 800)
+        self.setStyleSheet(STYLESHEET)
 
-        self.music_folder=""; self.current_collection=""; self.collections=[]
-        self.playlist=[]; self.history=[]; self.lyrics=[]; self.current_index=-1
-        self.offset=0.0; self.saved_offsets={}; self.metadata={}
-        self.mode=0; self.rate=1.0; self.volume=80; self.is_slider_pressed=False
+        self.music_folder = ""; self.current_collection = ""; self.collections = []
+        self.playlist = []; self.history = []; self.lyrics = []
+        self.current_index = -1; self.offset = 0.0; self.saved_offsets = {}; self.metadata = {}
+        self.mode = 0; self.rate = 1.0; self.volume = 80; self.is_slider_pressed = False
 
-        self.player=QMediaPlayer()
-        self.player.positionChanged.connect(self.on_pos); self.player.durationChanged.connect(self.on_dur)
-        self.player.stateChanged.connect(self.on_state); self.player.mediaStatusChanged.connect(self.on_media)
+        self.player = QMediaPlayer()
+        self.player.positionChanged.connect(self.on_pos_changed)
+        self.player.durationChanged.connect(self.on_dur_changed)
+        self.player.stateChanged.connect(self.on_state_changed)
+        self.player.mediaStatusChanged.connect(self.on_media_status)
         self.player.error.connect(self.handle_err); self.player.setVolume(self.volume)
         
-        self.desktop_lyric=DesktopLyricWindow(); self.desktop_lyric.show()
+        self.desktop_lyric = DesktopLyricWindow(); self.desktop_lyric.show()
         self.init_ui(); self.load_conf()
 
     def init_ui(self):
-        cw=QWidget(); self.setCentralWidget(cw); lay=QHBoxLayout(cw); lay.setContentsMargins(0,0,0,0); lay.setSpacing(0)
+        cw = QWidget(); self.setCentralWidget(cw); lay = QHBoxLayout(cw); lay.setContentsMargins(0,0,0,0); lay.setSpacing(0)
         
-        # Sidebar
-        sb=QFrame(); sb.setObjectName("Sidebar"); sb.setFixedWidth(260); sl=QVBoxLayout(sb)
-        sl.addWidget(QLabel("🎵 SODA MUSIC", objectName="Logo"))
+        # === 侧边栏 ===
+        sb = QFrame(); sb.setObjectName("Sidebar"); sb.setFixedWidth(260); sl = QVBoxLayout(sb)
+        sl.setSpacing(5); sl.setContentsMargins(0,0,0,0)
         
-        bb=QWidget(); bl=QVBoxLayout(bb); bl.setSpacing(8)
-        b1=QPushButton("☁️ B站下载"); b1.setObjectName("DownloadBtn"); b1.clicked.connect(self.dl_bili); bl.addWidget(b1)
-        b2=QPushButton("➕ 新建合集"); b2.setProperty("NavBtn",True); b2.clicked.connect(self.new_coll); bl.addWidget(b2)
-        b3=QPushButton("🔄 刷新库"); b3.setProperty("NavBtn",True); b3.clicked.connect(self.full_scan); bl.addWidget(b3)
-        sl.addWidget(bb); sl.addWidget(QLabel("  我的音乐库", objectName="SectionTitle"))
+        sl.addWidget(QLabel("🎵 汽水音乐", objectName="Logo"))
         
-        self.nav=QListWidget(); self.nav.setStyleSheet("background:transparent; border:none; font-size:14px;")
-        self.nav.itemClicked.connect(self.switch_coll); sl.addWidget(self.nav)
+        b_dl = QPushButton("☁️ B站下载"); b_dl.setObjectName("DownloadBtn"); b_dl.clicked.connect(self.dl_bili)
+        sl.addWidget(b_dl)
+        
+        nav_box = QWidget(); nl = QVBoxLayout(nav_box); nl.setSpacing(2)
+        self.btn_all = QPushButton("💿 全部音乐"); self.btn_all.setProperty("NavBtn",True); self.btn_all.setCheckable(True); self.btn_all.clicked.connect(lambda: self.switch_coll(None))
+        self.btn_hist = QPushButton("🕒 最近播放"); self.btn_hist.setProperty("NavBtn",True); self.btn_hist.setCheckable(True); self.btn_hist.clicked.connect(lambda: self.switch_coll("HISTORY"))
+        nl.addWidget(self.btn_all); nl.addWidget(self.btn_hist); sl.addWidget(nav_box)
+        
+        sl.addWidget(QLabel("歌单宝藏库", objectName="SectionTitle"))
+        self.nav = QListWidget(); self.nav.setStyleSheet("background:transparent; border:none; margin:0 10px;")
+        self.nav.itemClicked.connect(self.on_coll_click)
+        sl.addWidget(self.nav)
         
         sl.addStretch()
-        bf=QPushButton("📂 根目录"); bf.setProperty("NavBtn",True); bf.clicked.connect(self.sel_folder); sl.addWidget(bf)
-        bl=QPushButton("🎤 桌面歌词"); bl.setProperty("NavBtn",True); bl.clicked.connect(self.tog_lyric); sl.addWidget(bl)
+        bf = QPushButton("📂 管理根目录"); bf.setProperty("NavBtn",True); bf.clicked.connect(self.sel_folder); sl.addWidget(bf)
+        bl = QPushButton("🎤 桌面歌词"); bl.setProperty("NavBtn",True); bl.clicked.connect(self.tog_desk_lrc); sl.addWidget(bl)
         lay.addWidget(sb)
 
-        # Main
-        rp=QWidget(); rl=QVBoxLayout(rp); rl.setContentsMargins(0,0,0,0); rl.setSpacing(0)
-        self.stack=QStackedWidget()
+        # === 右侧区域 ===
+        rp = QWidget(); rl = QVBoxLayout(rp); rl.setContentsMargins(0,0,0,0); rl.setSpacing(0)
         
-        # Page 1: List
-        p1=QWidget(); l1=QVBoxLayout(p1); l1.setContentsMargins(0,0,0,0)
-        tb=QFrame(); tb.setFixedHeight(60); tb.setStyleSheet("background:rgba(255,255,255,0.8); border-bottom:1px solid #eee;")
-        th=QHBoxLayout(tb); th.setContentsMargins(20,0,20,0)
-        self.lb_ti=QLabel("全部音乐"); self.lb_ti.setStyleSheet("font-size:20px; font-weight:bold;")
-        self.sch=QLineEdit(); self.sch.setPlaceholderText("🔍 搜索..."); self.sch.setFixedWidth(200)
-        self.sch.textChanged.connect(self.filter_list)
-        th.addWidget(self.lb_ti); th.addStretch(); th.addWidget(self.sch); l1.addWidget(tb)
+        # Header
+        hd = QWidget(); hl = QHBoxLayout(hd); hl.setContentsMargins(30,20,30,10)
+        self.lb_title = QLabel("全部音乐"); self.lb_title.setStyleSheet("font-size:28px; font-weight:bold; color:#D4AF37;")
+        self.search = QLineEdit(); self.search.setPlaceholderText("🔍 搜索歌曲..."); self.search.setFixedWidth(250)
+        self.search.setStyleSheet("border-radius:18px; padding:8px 15px; border:1px solid #3A3530; background:#25211E; color:#DDD;")
+        self.search.textChanged.connect(self.filter_list)
+        hl.addWidget(self.lb_title); hl.addStretch(); hl.addWidget(self.search); rl.addWidget(hd)
         
-        self.table=QTableWidget(); self.table.setColumnCount(4); self.table.setHorizontalHeaderLabels(["标题","歌手","专辑","时长"])
+        # Content (Table + Lyric)
+        cont = QWidget(); cl = QHBoxLayout(cont); cl.setContentsMargins(20,0,20,0)
+        
+        self.table = QTableWidget(); self.table.setColumnCount(4); self.table.setHorizontalHeaderLabels(["歌曲","歌手","专辑","时长"])
         self.table.horizontalHeader().setSectionResizeMode(0,QHeaderView.Stretch)
-        self.table.verticalHeader().setVisible(False); self.table.setShowGrid(False); self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False); self.table.setShowGrid(False); self.table.setAlternatingRowColors(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows); self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.itemDoubleClicked.connect(self.play_sel); self.table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self.show_menu); l1.addWidget(self.table)
-        self.stack.addWidget(p1)
+        self.table.customContextMenuRequested.connect(self.show_menu)
+        cl.addWidget(self.table, stretch=6)
         
-        # Page 2: Lyric
-        p2=QWidget(); p2.setObjectName("LyricsPage"); l2=QHBoxLayout(p2)
-        lb=QVBoxLayout(); lb.setAlignment(Qt.AlignCenter)
-        cv=QLabel(); cv.setFixedSize(300,300); cv.setStyleSheet("background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #a18cd1,stop:1 #fbc2eb); border-radius:20px;")
-        self.at_ti=QLabel("Title"); self.at_ti.setStyleSheet("font-size:24px; font-weight:bold; margin-top:20px;")
-        self.at_ar=QLabel("Artist"); self.at_ar.setStyleSheet("font-size:16px; color:#666;")
-        bk=QPushButton("﹀ 收起"); bk.setCursor(Qt.PointingHandCursor); bk.setStyleSheet("border:none; color:#888; margin-top:30px;")
-        bk.clicked.connect(lambda: self.stack.setCurrentIndex(0))
-        lb.addWidget(cv); lb.addWidget(self.at_ti); lb.addWidget(self.at_ar); lb.addWidget(bk); l2.addLayout(lb)
-        
-        self.big_lrc=QListWidget(); self.big_lrc.setObjectName("BigLyric"); self.big_lrc.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.big_lrc.setFocusPolicy(Qt.NoFocus); l2.addWidget(self.big_lrc, stretch=1)
-        self.stack.addWidget(p2); rl.addWidget(self.stack)
+        self.lrc_p = QListWidget(); self.lrc_p.setObjectName("LyricPanel"); self.lrc_p.setFocusPolicy(Qt.NoFocus)
+        self.lrc_p.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        cl.addWidget(self.lrc_p, stretch=3)
+        rl.addWidget(cont)
 
-        # Bar
-        bar=QFrame(); bar.setObjectName("PlayerBar"); bar.setFixedHeight(90); bl=QHBoxLayout(bar)
+        # Player Bar
+        bar = QFrame(); bar.setObjectName("PlayerBar"); bar.setFixedHeight(100); bl = QVBoxLayout(bar)
         
-        inf=QWidget(); il=QHBoxLayout(inf); il.setContentsMargins(0,0,0,0)
-        ma=QPushButton(); ma.setFixedSize(48,48); ma.setStyleSheet("background:#ddd; border-radius:6px; border:none;")
-        ma.clicked.connect(lambda: self.stack.setCurrentIndex(1))
-        tx=QWidget(); tl=QVBoxLayout(tx); tl.setSpacing(2); tl.setContentsMargins(0,0,0,0)
-        self.bt=QLabel("--"); self.bt.setStyleSheet("font-weight:bold;")
-        self.ba=QLabel("--"); self.ba.setStyleSheet("color:#666; font-size:11px;")
-        tl.addWidget(self.bt); tl.addWidget(self.ba); il.addWidget(ma); il.addWidget(tx); bl.addWidget(inf, stretch=2)
-        
-        ctr=QWidget(); cl=QVBoxLayout(ctr)
-        bts=QHBoxLayout(); bts.setSpacing(15); bts.setAlignment(Qt.AlignCenter)
-        self.bm=QPushButton("🔁"); self.bm.setProperty("CtrlBtn",True); self.bm.clicked.connect(self.tog_mode)
-        bp=QPushButton("⏮"); bp.setProperty("CtrlBtn",True); bp.clicked.connect(self.play_prev)
-        self.bp=QPushButton("▶"); self.bp.setObjectName("PlayBtn"); self.bp.clicked.connect(self.tog_play)
-        bn=QPushButton("⏭"); bn.setProperty("CtrlBtn",True); bn.clicked.connect(self.play_next)
-        self.br=QPushButton("1.0x"); self.br.setProperty("CtrlBtn",True); self.br.clicked.connect(self.tog_rate)
-        bts.addWidget(self.bm); bts.addWidget(bp); bts.addWidget(self.bp); bts.addWidget(bn); bts.addWidget(self.br)
-        
-        prg=QHBoxLayout(); self.lc=QLabel("00:00"); self.lt=QLabel("00:00"); self.sl=QSlider(Qt.Horizontal)
+        prg = QHBoxLayout(); self.lc = QLabel("00:00"); self.lt = QLabel("00:00"); self.sl = QSlider(Qt.Horizontal)
         self.sl.sliderPressed.connect(self.sp); self.sl.sliderReleased.connect(self.sr); self.sl.valueChanged.connect(self.sm)
-        prg.addWidget(self.lc); prg.addWidget(self.sl); prg.addWidget(self.lt); cl.addLayout(bts); cl.addLayout(prg)
-        bl.addWidget(ctr, stretch=4)
+        prg.addWidget(self.lc); prg.addWidget(self.sl); prg.addWidget(self.lt); bl.addLayout(prg)
         
-        rgt=QHBoxLayout(); rgt.setAlignment(Qt.AlignRight)
-        self.sv=QSlider(Qt.Horizontal); self.sv.setRange(0,100); self.sv.setValue(80); self.sv.setFixedWidth(80)
-        self.sv.valueChanged.connect(self.player.setVolume)
-        bo=QPushButton("词微调"); bo.setProperty("OffsetBtn",True); bo.clicked.connect(self.adj_off)
-        rgt.addWidget(QLabel("🔈")); rgt.addWidget(self.sv); rgt.addWidget(bo); bl.addLayout(rgt, stretch=2)
+        ctr = QHBoxLayout()
+        self.bm = QPushButton("🔁"); self.bm.setProperty("CtrlBtn",True); self.bm.clicked.connect(self.tm)
+        bp = QPushButton("⏮"); bp.setProperty("CtrlBtn",True); bp.clicked.connect(self.pp)
+        self.bp = QPushButton("▶"); self.bp.setObjectName("PlayBtn"); self.bp.clicked.connect(self.tp)
+        bn = QPushButton("⏭"); bn.setProperty("CtrlBtn",True); bn.clicked.connect(self.pn)
+        
+        # Offset btns
+        bo1 = QPushButton("-0.5s"); bo1.setProperty("OffsetBtn",True); bo1.clicked.connect(lambda: self.ao(-0.5))
+        bo2 = QPushButton("+0.5s"); bo2.setProperty("OffsetBtn",True); bo2.clicked.connect(lambda: self.ao(0.5))
+        
+        ctr.addStretch(); ctr.addWidget(self.bm); ctr.addSpacing(20); ctr.addWidget(bp); ctr.addWidget(self.bp)
+        ctr.addWidget(bn); ctr.addSpacing(20); ctr.addWidget(bo1); ctr.addWidget(bo2); ctr.addStretch()
+        bl.addLayout(ctr)
         
         rl.addWidget(bar); lay.addWidget(rp)
 
@@ -411,15 +439,27 @@ class SodaPlayer(QMainWindow):
             if os.path.isdir(fd):
                 fs = [f for f in os.listdir(fd) if f.lower().endswith(ext)]
                 if len(fs) > 1: self.collections.append(d)
-        self.nav.clear(); self.nav.addItem("💿  全部歌曲"); self.nav.addItem("🕒  最近播放")
-        for c in self.collections: self.nav.addItem(f"📁  {c}")
-        self.load_list()
+        self.nav.clear()
+        for c in self.collections: 
+            it = QListWidgetItem(f"{c}"); it.setData(Qt.UserRole, c)
+            self.nav.addItem(it)
+        self.switch_coll(None)
 
-    def switch_coll(self, item):
-        t = item.text()
-        if "全部" in t: self.current_collection=""; self.lb_ti.setText("全部音乐")
-        elif "最近" in t: self.current_collection="HISTORY"; self.lb_ti.setText("最近播放")
-        else: self.current_collection=t.replace("📁  ",""); self.lb_ti.setText(self.current_collection)
+    def on_coll_click(self, item): self.switch_coll(item.data(Qt.UserRole))
+    
+    def switch_coll(self, coll_name):
+        self.btn_all.setChecked(coll_name is None)
+        self.btn_hist.setChecked(coll_name == "HISTORY")
+        
+        if coll_name == "HISTORY":
+            self.current_collection = "HISTORY"
+            self.lb_title.setText("最近播放")
+        elif coll_name:
+            self.current_collection = coll_name
+            self.lb_title.setText(coll_name)
+        else:
+            self.current_collection = ""
+            self.lb_title.setText("全部音乐")
         self.load_list()
 
     def load_list(self):
@@ -429,10 +469,12 @@ class SodaPlayer(QMainWindow):
         if self.current_collection=="HISTORY":
             for s in self.history: self.add_row(s)
             return
+        
         if self.current_collection: ds=[os.path.join(self.music_folder, self.current_collection)]
         else:
             ds=[self.music_folder]
             for c in self.collections: ds.append(os.path.join(self.music_folder,c))
+        
         for d in ds:
             if os.path.exists(d):
                 for f in os.listdir(d):
@@ -448,7 +490,7 @@ class SodaPlayer(QMainWindow):
         self.table.setItem(r,0,QTableWidgetItem(os.path.splitext(s["name"])[0]))
         self.table.setItem(r,1,QTableWidgetItem(s["artist"]))
         self.table.setItem(r,2,QTableWidgetItem(s["album"]))
-        self.table.setItem(r,3,QTableWidgetItem(s.get("dur","-")))
+        self.table.setItem(r,3,QTableWidgetItem("-"))
 
     def filter_list(self, txt):
         txt = txt.lower()
@@ -466,19 +508,16 @@ class SodaPlayer(QMainWindow):
         try:
             self.player.setMedia(QMediaContent(QUrl.fromLocalFile(s["path"])))
             self.player.setPlaybackRate(self.rate); self.player.play()
-            self.b_pp.setText("⏸")
-            
-            nm = os.path.splitext(s["name"])[0]
-            self.bt.setText(nm); self.ba.setText(s["artist"])
-            self.at_ti.setText(nm); self.at_ar.setText(s["artist"])
+            self.bp.setText("⏸")
             
             self.offset = self.saved_offsets.get(s["name"], 0.0)
-            lrc = os.path.splitext(s["path"])[0]+".lrc"
-            if os.path.exists(lrc): 
-                with open(lrc,'r',encoding='utf-8',errors='ignore') as f: self.parse_lrc(f.read())
+            
+            lp = os.path.splitext(s["path"])[0]+".lrc"
+            if os.path.exists(lp):
+                with open(lp,'r',encoding='utf-8',errors='ignore') as f: self.parse_lrc(f.read())
             else:
-                self.big_lrc.clear(); self.big_lrc.addItem("搜索中...")
-                self.sw = LyricListSearchWorker(nm)
+                self.lrc_p.clear(); self.lrc_p.addItem("搜索歌词...")
+                self.sw = LyricListSearchWorker(os.path.splitext(s["name"])[0])
                 self.sw.search_finished.connect(self.auto_lrc)
                 self.sw.start()
         except: pass
@@ -489,41 +528,26 @@ class SodaPlayer(QMainWindow):
             self.ld = LyricDownloader(res[0]['id'], lp)
             self.ld.finished_signal.connect(self.parse_lrc)
             self.ld.start()
-        else: self.big_lrc.clear(); self.big_lrc.addItem("无歌词")
+        else: self.lrc_p.clear(); self.lrc_p.addItem("无歌词")
 
     def parse_lrc(self, txt):
-        self.lyrics = []; self.big_lrc.clear()
+        self.lyrics = []; self.lrc_p.clear()
         for l in txt.splitlines():
             m = re.match(r'\[(\d+):(\d+)\.(\d+)\](.*)', l)
             if m:
                 t = int(m.group(1))*60 + int(m.group(2)) + int(m.group(3))/100
                 tx = m.group(4).strip()
-                if tx: self.lyrics.append({"t":t, "txt":tx}); self.big_lrc.addItem(tx)
-
-    def on_pos(self, p):
-        if not self.is_slider_pressed: self.slider.setValue(p)
-        self.lc.setText(ms_to_str(p))
-        t = p/1000 + self.offset
-        if self.lyrics:
-            idx = -1
-            for i, l in enumerate(self.lyrics):
-                if t >= l["t"]: idx = i
-                else: break
-            if idx != -1:
-                p = self.lyrics[idx-1]["txt"] if idx>0 else ""
-                c = self.lyrics[idx]["txt"]
-                n = self.lyrics[idx+1]["txt"] if idx<len(self.lyrics)-1 else ""
-                self.desktop_lyric.set_lyrics(p, c, n)
-                self.big_lrc.setCurrentRow(idx)
-                self.big_lrc.scrollToItem(self.big_lrc.item(idx), QAbstractItemView.PositionAtCenter)
+                if tx: self.lyrics.append({"t":t, "txt":tx}); self.lrc_p.addItem(tx)
 
     def show_menu(self, p):
         rows = sorted(set(i.row() for i in self.table.selectedItems()))
         if not rows: return
         m = QMenu()
+        
         mv = m.addMenu("📂 移动到...")
         mv.addAction("根目录", lambda: self.do_move(rows, ""))
         for c in self.collections: mv.addAction(c, lambda _,t=c: self.do_move(rows, t))
+        
         m.addAction("🔠 批量重命名", self.do_rename_batch)
         m.addAction("✏️ 改信息", lambda: self.do_edit_info(rows))
         m.addSeparator()
@@ -535,12 +559,15 @@ class SodaPlayer(QMainWindow):
         m.addAction("🗑️ 删除", lambda: self.do_del(rows))
         m.exec_(self.table.mapToGlobal(p))
 
+    # --- 修复后的文件操作 (先释放player) ---
+    def release_player(self):
+        self.player.setMedia(QMediaContent()) # 核心修复
+        
     def do_move(self, rows, target):
-        self.player.setMedia(QMediaContent())
+        self.release_player()
         tp = os.path.join(self.music_folder, target) if target else self.music_folder
         if not os.path.exists(tp): os.makedirs(tp)
-        targets = [self.playlist[i] for i in rows]
-        cnt=0
+        targets = [self.playlist[i] for i in rows]; cnt=0
         for s in targets:
             try:
                 src = s["path"]; dst = os.path.join(tp, s["name"])
@@ -554,7 +581,7 @@ class SodaPlayer(QMainWindow):
 
     def do_rename_batch(self):
         if not self.playlist: return
-        self.player.setMedia(QMediaContent())
+        self.release_player()
         d = BatchRenameDialog(self.playlist, self)
         if d.exec_()==QDialog.Accepted:
             m, p, idxs = d.get_data()
@@ -575,7 +602,7 @@ class SodaPlayer(QMainWindow):
             self.full_scan()
 
     def do_bind(self, idx):
-        self.player.setMedia(QMediaContent())
+        self.release_player()
         s = self.playlist[idx]; old=s["path"]
         f,_ = QFileDialog.getOpenFileName(self,"LRC","","*.lrc")
         if f:
@@ -584,21 +611,8 @@ class SodaPlayer(QMainWindow):
             try:
                 shutil.move(old, os.path.join(d, s["name"]))
                 shutil.copy(f, os.path.join(d, os.path.splitext(s["name"])[0]+".lrc"))
-                self.full_scan()
+                self.full_scan(); QMessageBox.information(self,"ok","整理完成")
             except:pass
-
-    def do_search_lrc(self, idx):
-        s = self.playlist[idx]
-        dur = self.player.duration() if self.current_index==idx else 0
-        d = LyricSearchDialog(os.path.splitext(s["name"])[0], dur, self)
-        if d.exec_()==QDialog.Accepted and d.result_id:
-            lp = os.path.splitext(s["path"])[0]+".lrc"
-            self.ld = LyricDownloader(d.result_id, lp)
-            self.ld.finished_signal.connect(lambda c: self.on_lrc_ok(c,idx))
-            self.ld.start()
-    def on_lrc_ok(self, c, i):
-        if self.current_index==i: self.parse_lrc(c)
-        QMessageBox.information(self,"OK","绑定成功")
 
     def do_del_lrc(self, idx):
         p = os.path.splitext(self.playlist[idx]["path"])[0]+".lrc"
@@ -607,7 +621,7 @@ class SodaPlayer(QMainWindow):
 
     def do_del(self, rows):
         if QMessageBox.Yes!=QMessageBox.question(self,"确","删?"): return
-        self.player.setMedia(QMediaContent())
+        self.release_player()
         for i in rows:
             if i<len(self.playlist):
                 try:
@@ -616,6 +630,18 @@ class SodaPlayer(QMainWindow):
                     if os.path.exists(l): os.remove(l)
                 except:pass
         self.full_scan()
+
+    def do_search_lrc(self, idx):
+        s = self.playlist[idx]; dur = self.player.duration() if self.current_index==idx else 0
+        dlg = LyricSearchDialog(os.path.splitext(s["name"])[0], dur, self)
+        if dlg.exec_()==QDialog.Accepted and dlg.result_id:
+            lp = os.path.splitext(s["path"])[0]+".lrc"
+            self.ld = LyricDownloader(dlg.result_id, lp)
+            self.ld.finished_signal.connect(lambda c: self.on_lrc_ok(c,idx))
+            self.ld.start()
+    def on_lrc_ok(self, c, i):
+        if self.current_index==i: self.parse_lrc(c)
+        QMessageBox.information(self,"OK","绑定成功")
 
     def do_edit_info(self, rows):
         d = BatchInfoDialog(self)
@@ -641,19 +667,18 @@ class SodaPlayer(QMainWindow):
                 mode,f,a,b = d.get_data()
                 path = os.path.join(self.music_folder, f) if f else self.music_folder
                 self.tmp_meta = (a,b)
-                self.lb_ti.setText("⏳ 下载中...")
+                self.lb_title.setText("⏳ 下载中...")
                 self.dl = BilibiliDownloader(u, path, mode, p)
-                self.dl.progress_signal.connect(lambda s: self.lb_ti.setText(s))
+                self.dl.progress_signal.connect(lambda s: self.lb_title.setText(s))
                 self.dl.finished_signal.connect(self.on_dl_ok)
                 self.dl.start()
-
     def on_dl_ok(self, p):
         a,b = self.tmp_meta
         if a or b:
             for f in os.listdir(p):
-                if f not in self.metadata: self.metadata[f] = {"a":a or "未知", "b":b or "未知"}
+                if f not in self.metadata: self.metadata[f]={"a":a or "未知", "b":b or "未知"}
             self.save_meta()
-        self.full_scan(); self.lb_ti.setText("下载完成")
+        self.full_scan(); self.lb_title.setText("下载完成")
 
     def new_coll(self):
         n, ok = QInputDialog.getText(self, "新建", "名称:")
@@ -661,27 +686,39 @@ class SodaPlayer(QMainWindow):
             os.makedirs(os.path.join(self.music_folder, sanitize_filename(n)), exist_ok=True)
             self.full_scan()
 
-    def adj_off(self):
-        i, ok = QInputDialog.getDouble(self, "微调", "秒数:", self.offset, -10, 10, 1)
-        if ok: 
-            self.offset = i
-            if self.current_index>=0: 
-                self.saved_offsets[self.playlist[self.current_index]["name"]]=self.offset
-                self.save_off()
+    def ao(self, v):
+        self.offset+=v
+        if self.current_index>=0: 
+            self.saved_offsets[self.playlist[self.current_index]["name"]]=self.offset
+            self.save_off()
 
+    # ... (其他播放控制逻辑保持不变)
     def sel_folder(self):
         f=QFileDialog.getExistingDirectory(self,"选目录")
         if f: self.music_folder=f; self.full_scan(); self.save_config()
-    def tog_lyric(self): 
+    def tog_desk_lrc(self): 
         if self.desktop_lyric.isVisible(): self.desktop_lyric.hide()
         else: self.desktop_lyric.show()
     def sp(self): self.is_slider_pressed=True
     def sr(self): self.is_slider_pressed=False; self.player.setPosition(self.sl.value())
     def sm(self, v): 
         if self.is_slider_pressed: self.lc.setText(ms_to_str(v))
-    def on_dur(self, d): self.sl.setRange(0, d); self.lt.setText(ms_to_str(d))
-    def on_state(self, s): self.b_pp.setText("⏸" if s==QMediaPlayer.PlayingState else "▶")
-    def on_media(self, s): 
+    def on_dur_changed(self, d): self.sl.setRange(0, d); self.lt.setText(ms_to_str(d))
+    def on_pos_changed(self, p):
+        if not self.is_slider_pressed: self.sl.setValue(p)
+        self.lc.setText(ms_to_str(p))
+        t = p/1000 + self.offset
+        if self.lyrics:
+            idx = -1
+            for i, l in enumerate(self.lyrics):
+                if t >= l["t"]: idx = i
+                else: break
+            if idx != -1:
+                self.lrc_p.setCurrentRow(idx); self.lrc_p.scrollToItem(self.lrc_p.item(idx), QAbstractItemView.PositionAtCenter)
+                pr=self.lyrics[idx-1]["txt"] if idx>0 else ""; cu=self.lyrics[idx]["txt"]; ne=self.lyrics[idx+1]["txt"] if idx<len(self.lyrics)-1 else ""
+                self.desktop_lyric.set_lyrics(pr, cu, ne)
+    def on_state_changed(self, s): self.b_pp.setText("⏸" if s==QMediaPlayer.PlayingState else "▶")
+    def on_media_status(self, s): 
         if s==QMediaPlayer.EndOfMedia: 
             if self.mode==1: self.player.play() 
             else: self.play_next()
@@ -689,10 +726,10 @@ class SodaPlayer(QMainWindow):
     def tog_play(self):
         if self.player.state()==QMediaPlayer.PlayingState: self.player.pause()
         else: self.player.play()
-    def tog_mode(self): self.mode=(self.mode+1)%3; self.b_mode.setText(["🔁","🔂","🔀"][self.mode])
-    def tog_rate(self):
+    def tm(self): self.mode=(self.mode+1)%3; self.bm.setText(["🔁","🔂","🔀"][self.mode])
+    def tr(self):
         rs=[1.0,1.25,1.5,2.0,0.5]; i=rs.index(self.rate) if self.rate in rs else 0
-        self.rate=rs[(i+1)%5]; self.player.setPlaybackRate(self.rate); self.b_rate.setText(f"{self.rate}x")
+        self.rate=rs[(i+1)%5]; self.player.setPlaybackRate(self.rate); self.br.setText(f"{self.rate}x")
     def play_next(self):
         if not self.playlist: return
         n = random.randint(0,len(self.playlist)-1) if self.mode==2 else (self.current_index+1)%len(self.playlist)
@@ -701,40 +738,29 @@ class SodaPlayer(QMainWindow):
         if not self.playlist: return
         p = random.randint(0,len(self.playlist)-1) if self.mode==2 else (self.current_index-1)%len(self.playlist)
         self.play(p)
-    def ao(self, v):
-        self.offset+=v
-        if self.current_index>=0: 
-            self.saved_offsets[self.playlist[self.current_index]["name"]]=self.offset
-            self.save_off()
 
+    # Config
     def load_conf(self):
         if os.path.exists(CONFIG_FILE):
             try: 
                 with open(CONFIG_FILE,'r') as f: 
-                    d=json.load(f); self.music_folder=d.get("folder","")
+                    d=json.load(f); self.music_folder=d.get("folder",""); 
                     if self.music_folder: self.full_scan()
             except:pass
-        if os.path.exists(METADATA_FILE):
-            try: 
-                with open(METADATA_FILE,'r') as f: self.metadata=json.load(f)
+        if os.path.exists(METADATA_FILE): 
+            try: with open(METADATA_FILE,'r') as f: self.metadata=json.load(f)
             except:pass
         if os.path.exists(OFFSET_FILE):
-            try: 
-                with open(OFFSET_FILE,'r') as f: self.saved_offsets=json.load(f)
+            try: with open(OFFSET_FILE,'r') as f: self.saved_offsets=json.load(f)
             except:pass
         if os.path.exists(HISTORY_FILE):
-            try: 
-                with open(HISTORY_FILE,'r') as f: self.history=json.load(f)
+            try: with open(HISTORY_FILE,'r') as f: self.history=json.load(f)
             except:pass
 
-    def save_config(self): 
-        with open(CONFIG_FILE,'w') as f: json.dump({"folder":self.music_folder},f)
-    def save_meta(self): 
-        with open(METADATA_FILE,'w') as f: json.dump(self.metadata,f)
-    def save_off(self): 
-        with open(OFFSET_FILE,'w') as f: json.dump(self.saved_offsets,f)
-    def save_hist(self): 
-        with open(HISTORY_FILE,'w') as f: json.dump(self.history,f)
+    def save_config(self): with open(CONFIG_FILE,'w') as f: json.dump({"folder":self.music_folder},f)
+    def save_meta(self): with open(METADATA_FILE,'w') as f: json.dump(self.metadata,f)
+    def save_off(self): with open(OFFSET_FILE,'w') as f: json.dump(self.saved_offsets,f)
+    def save_hist(self): with open(HISTORY_FILE,'w') as f: json.dump(self.history,f)
 
 if __name__ == "__main__":
     if getattr(sys, 'frozen', False):
