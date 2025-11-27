@@ -45,7 +45,7 @@ def enable_acrylic(hwnd):
     try:
         policy = ACCENT_POLICY()
         policy.AccentState = 4
-        policy.GradientColor = 0xCCF5F7FA  # 修改为白天主题的背景色
+        policy.GradientColor = 0xCCF5F7FA  # 白天主题的背景色
         data = WINDOWCOMPOSITIONATTRIBDATA()
         data.Attribute = 19
         data.Data = POINTER(ACCENT_POLICY)(policy)
@@ -60,6 +60,7 @@ class ThemeManager:
         self.themes = {
             'light': {
                 'primary': '#4361EE',  # 主色调蓝色
+                'primary-dark': '#3A56D4',  # 深蓝色
                 'secondary': '#3A86FF',  # 次要蓝色
                 'background': '#FFFFFF',  # 背景白色
                 'surface': '#F5F7FA',  # 表面浅灰
@@ -74,6 +75,7 @@ class ThemeManager:
             },
             'dark': {
                 'primary': '#BB86FC',
+                'primary-dark': '#A875FF',
                 'secondary': '#03DAC6',
                 'background': '#121212',
                 'surface': '#1E1E1E',
@@ -108,7 +110,7 @@ def generate_stylesheet(theme):
     }}
     
     QWidget {{
-        font-family: "Poppins", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+        font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
         color: {theme['text_primary']};
     }}
     
@@ -134,7 +136,7 @@ def generate_stylesheet(theme):
         text-transform: uppercase;
     }}
     
-    /* 导航按钮 */
+    /* 导航按钮 - 边框强调方案 */
     QPushButton.NavBtn {{
         background: transparent;
         border: none;
@@ -144,11 +146,13 @@ def generate_stylesheet(theme):
         color: {theme['text_secondary']};
         border-radius: 8px;
         margin: 2px 12px;
+        border-left: 3px solid transparent;
     }}
     
     QPushButton.NavBtn:hover {{
         background-color: {theme['hover']};
         color: {theme['primary']};
+        border-left: 3px solid {theme['primary']};
     }}
     
     QPushButton.NavBtn:checked {{
@@ -158,20 +162,40 @@ def generate_stylesheet(theme):
         border-left: 3px solid {theme['primary']};
     }}
     
-    /* 下载按钮 */
+    /* 下载按钮 - 边框强调方案 */
     QPushButton#DownloadBtn {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['primary']}, stop:1 {theme['secondary']});
-        color: white;
+        background: transparent;
+        color: {theme['primary']};
+        border: 2px solid {theme['primary']};
         font-weight: bold;
         border-radius: 20px;
         text-align: center;
         margin: 15px 20px;
         padding: 10px;
-        border: none;
     }}
     
     QPushButton#DownloadBtn:hover {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['secondary']}, stop:1 #5A8DFF);
+        background: {theme['primary']};
+        color: white;
+    }}
+    
+    /* 工具按钮 - 边框强调方案 */
+    QPushButton.ToolBtn {{
+        background: transparent;
+        border: none;
+        text-align: left;
+        padding: 12px 25px;
+        font-size: 14px;
+        color: {theme['text_secondary']};
+        border-radius: 8px;
+        margin: 2px 12px;
+        border-left: 3px solid transparent;
+    }}
+    
+    QPushButton.ToolBtn:hover {{
+        background: {theme['hover']};
+        color: {theme['primary']};
+        border-left: 3px solid {theme['primary']};
     }}
     
     /* 搜索框 */
@@ -211,16 +235,19 @@ def generate_stylesheet(theme):
         padding: 10px;
         border-bottom: 1px solid {theme['border']};
         color: {theme['text_primary']};
+        border-left: 2px solid transparent;
     }}
     
     QTableWidget::item:hover {{
         background-color: {theme['hover']};
+        border-left: 2px solid {theme['primary']};
     }}
     
     QTableWidget::item:selected {{
         background-color: {theme['selected']};
         color: {theme['primary']};
         border-radius: 6px;
+        border-left: 2px solid {theme['primary']};
     }}
     
     /* 歌词页面 */
@@ -281,31 +308,47 @@ def generate_stylesheet(theme):
         border-top: 1px solid {theme['border']};
     }}
     
-    /* 播放按钮 */
+    /* 播放按钮 - 边框强调方案 */
     QPushButton#PlayBtn {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['primary']}, stop:1 {theme['secondary']});
-        color: white;
+        background: transparent;
+        color: {theme['primary']};
+        border: 2px solid {theme['primary']};
         border-radius: 25px;
         font-size: 22px;
         min-width: 50px;
         min-height: 50px;
-        border: none;
     }}
     
     QPushButton#PlayBtn:hover {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['secondary']}, stop:1 #5A8DFF);
-        box-shadow: 0 0 20px {theme['primary']}80;
+        background: {theme['primary']};
+        color: white;
     }}
     
-    /* 控制按钮 */
+    /* 控制按钮 - 边框强调方案 */
     QPushButton.CtrlBtn {{
         background: transparent;
-        border: none;
+        border: 1px solid transparent;
         font-size: 20px;
         color: {theme['text_secondary']};
     }}
     
     QPushButton.CtrlBtn:hover {{
+        color: {theme['primary']};
+        border: 1px solid {theme['border']};
+    }}
+    
+    /* 偏移按钮 - 边框强调方案 */
+    QPushButton.OffsetBtn {{
+        background: transparent;
+        border: 1px solid {theme['border']};
+        color: {theme['text_secondary']};
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 12px;
+    }}
+    
+    QPushButton.OffsetBtn:hover {{
+        border: 1px solid {theme['primary']};
         color: {theme['primary']};
     }}
     
@@ -349,6 +392,32 @@ def generate_stylesheet(theme):
     
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
         height: 0px;
+    }}
+    
+    /* 歌单列表 */
+    QListWidget#CollectionList {{
+        background: transparent;
+        border: none;
+        font-size: 14px;
+        color: {theme['text_secondary']};
+        outline: none;
+    }}
+    
+    QListWidget#CollectionList::item {{
+        padding: 8px 13px;
+        border-left: 2px solid transparent;
+    }}
+    
+    QListWidget#CollectionList::item:hover {{
+        background: {theme['hover']};
+        color: {theme['primary']};
+        border-left: 2px solid {theme['primary']};
+    }}
+    
+    QListWidget#CollectionList::item:selected {{
+        background: {theme['selected']};
+        color: {theme['primary']};
+        font-weight: bold;
     }}
     """
 
@@ -515,7 +584,7 @@ class LyricSearchDialog(QDialog):
                 border-radius: 4px;
             }}
             QPushButton:hover {{
-                background: {theme['secondary']};
+                background: {theme['primary-dark']};
             }}
             QLabel {{
                 color: {theme['text_secondary']};
@@ -726,7 +795,7 @@ class DesktopLyricWindow(QWidget):
         
         self.resize(1200, 180)
         self.color = QColor(67, 97, 238)  # 主题蓝色
-        self.font = QFont("Poppins", 36, QFont.Bold)
+        self.font = QFont("Segoe UI", 36, QFont.Bold)
         self.locked = False
         
         layout = QVBoxLayout(self)
@@ -905,7 +974,7 @@ class SodaPlayer(QMainWindow):
         
         # 歌单列表
         self.collection_list = QListWidget()
-        self.collection_list.setStyleSheet("background: transparent; border: none; font-size: 14px; color: #718096;")
+        self.collection_list.setObjectName("CollectionList")
         self.collection_list.itemClicked.connect(self.on_collection_clicked)
         sidebar_layout.addWidget(self.collection_list)
         
@@ -916,27 +985,27 @@ class SodaPlayer(QMainWindow):
         tools_layout.setSpacing(2)
         
         refresh_button = QPushButton("🔄 刷新库")
-        refresh_button.setProperty("NavBtn", True)
+        refresh_button.setProperty("ToolBtn", True)
         refresh_button.clicked.connect(self.full_scan)
         tools_layout.addWidget(refresh_button)
         
         new_collection_button = QPushButton("➕ 新建合集")
-        new_collection_button.setProperty("NavBtn", True)
+        new_collection_button.setProperty("ToolBtn", True)
         new_collection_button.clicked.connect(self.new_collection)
         tools_layout.addWidget(new_collection_button)
         
         batch_move_button = QPushButton("🚚 批量移动")
-        batch_move_button.setProperty("NavBtn", True)
+        batch_move_button.setProperty("ToolBtn", True)
         batch_move_button.clicked.connect(self.batch_move_dialog)
         tools_layout.addWidget(batch_move_button)
         
         folder_button = QPushButton("📂 根目录")
-        folder_button.setProperty("NavBtn", True)
+        folder_button.setProperty("ToolBtn", True)
         folder_button.clicked.connect(self.select_folder)
         tools_layout.addWidget(folder_button)
         
         desktop_lyric_button = QPushButton("🎤 桌面歌词")
-        desktop_lyric_button.setProperty("NavBtn", True)
+        desktop_lyric_button.setProperty("ToolBtn", True)
         desktop_lyric_button.clicked.connect(self.toggle_desktop_lyric)
         tools_layout.addWidget(desktop_lyric_button)
         
@@ -1169,28 +1238,32 @@ class SodaPlayer(QMainWindow):
     # === 核心功能 ===
     def full_scan(self):
         if not self.music_folder:
+            QMessageBox.information(self, "提示", "请先选择音乐文件夹")
             return
         
-        self.collections = []
-        extensions = ('.mp3', '.wav', '.m4a', '.flac', '.mp4')
-        
-        for item in os.listdir(self.music_folder):
-            item_path = os.path.join(self.music_folder, item)
-            if os.path.isdir(item_path):
-                music_files = [f for f in os.listdir(item_path) if f.lower().endswith(extensions)]
-                if len(music_files) > 1:
-                    self.collections.append(item)
-        
-        self.collection_list.clear()
-        self.collection_list.addItem("💿  全部歌曲")
-        self.collection_list.addItem("🕒  最近播放")
-        
-        for collection in self.collections:
-            item = QListWidgetItem(f"📁  {collection}")
-            item.setData(Qt.UserRole, collection)
-            self.collection_list.addItem(item)
-        
-        self.switch_collection(None)
+        try:
+            self.collections = []
+            extensions = ('.mp3', '.wav', '.m4a', '.flac', '.mp4')
+            
+            for item in os.listdir(self.music_folder):
+                item_path = os.path.join(self.music_folder, item)
+                if os.path.isdir(item_path):
+                    music_files = [f for f in os.listdir(item_path) if f.lower().endswith(extensions)]
+                    if len(music_files) > 1:
+                        self.collections.append(item)
+            
+            self.collection_list.clear()
+            self.collection_list.addItem("💿  全部歌曲")
+            self.collection_list.addItem("🕒  最近播放")
+            
+            for collection in self.collections:
+                item = QListWidgetItem(f"📁  {collection}")
+                item.setData(Qt.UserRole, collection)
+                self.collection_list.addItem(item)
+            
+            self.switch_collection(None)
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"扫描文件夹时出错: {str(e)}")
     
     def switch_collection(self, collection_name):
         self.all_music_button.setChecked(collection_name is None)
@@ -1268,7 +1341,7 @@ class SodaPlayer(QMainWindow):
         self.play(item.row())
     
     def play(self, index):
-        if not self.playlist:
+        if not self.playlist or index < 0 or index >= len(self.playlist):
             return
         
         # 释放之前的媒体资源
@@ -1277,9 +1350,17 @@ class SodaPlayer(QMainWindow):
         self.current_index = index
         song = self.playlist[index]
         
+        # 检查文件是否存在
+        if not os.path.exists(song["path"]):
+            QMessageBox.warning(self, "错误", f"文件不存在: {song['path']}")
+            return
+        
         # 添加到播放历史
         if song not in self.history:
             self.history.insert(0, song)
+            # 只保留最近50首
+            if len(self.history) > 50:
+                self.history = self.history[:50]
             self.save_history()
         
         try:
@@ -1301,12 +1382,15 @@ class SodaPlayer(QMainWindow):
             # 加载歌词
             lyric_path = os.path.splitext(song["path"])[0] + ".lrc"
             if os.path.exists(lyric_path):
-                with open(lyric_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    self.parse_lyrics(f.read())
+                try:
+                    with open(lyric_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        self.parse_lyrics(f.read())
+                except Exception as e:
+                    print(f"歌词解析错误: {e}")
+                    self.clear_lyrics()
             else:
-                self.lyric_panel.clear()
+                self.clear_lyrics()
                 self.lyric_panel.addItem("搜索歌词...")
-                self.big_lyric_list.clear()
                 self.big_lyric_list.addItem("搜索歌词...")
                 
                 self.lyric_search_worker = LyricListSearchWorker(song_name)
@@ -1315,17 +1399,22 @@ class SodaPlayer(QMainWindow):
                 
         except Exception as e:
             print(f"播放错误: {e}")
+            QMessageBox.warning(self, "播放错误", f"无法播放文件: {str(e)}")
+    
+    def clear_lyrics(self):
+        self.lyrics = []
+        self.lyric_panel.clear()
+        self.big_lyric_list.clear()
     
     def auto_search_lyrics(self, results):
-        if results:
+        if results and self.current_index >= 0:
             lyric_path = os.path.splitext(self.playlist[self.current_index]["path"])[0] + ".lrc"
             self.lyric_downloader = LyricDownloader(results[0]['id'], lyric_path)
             self.lyric_downloader.finished_signal.connect(self.parse_lyrics)
             self.lyric_downloader.start()
         else:
-            self.lyric_panel.clear()
+            self.clear_lyrics()
             self.lyric_panel.addItem("无歌词")
-            self.big_lyric_list.clear()
             self.big_lyric_list.addItem("无歌词")
     
     def parse_lyrics(self, lyrics_text):
@@ -1370,11 +1459,13 @@ class SodaPlayer(QMainWindow):
                 
                 self.desktop_lyric.set_text(prev_lyric, current_lyric, next_lyric)
                 
-                self.lyric_panel.setCurrentRow(current_lyric_index)
-                self.lyric_panel.scrollToItem(self.lyric_panel.item(current_lyric_index), QAbstractItemView.PositionAtCenter)
+                if current_lyric_index < self.lyric_panel.count():
+                    self.lyric_panel.setCurrentRow(current_lyric_index)
+                    self.lyric_panel.scrollToItem(self.lyric_panel.item(current_lyric_index), QAbstractItemView.PositionAtCenter)
                 
-                self.big_lyric_list.setCurrentRow(current_lyric_index)
-                self.big_lyric_list.scrollToItem(self.big_lyric_list.item(current_lyric_index), QAbstractItemView.PositionAtCenter)
+                if current_lyric_index < self.big_lyric_list.count():
+                    self.big_lyric_list.setCurrentRow(current_lyric_index)
+                    self.big_lyric_list.scrollToItem(self.big_lyric_list.item(current_lyric_index), QAbstractItemView.PositionAtCenter)
     
     def on_duration_changed(self, duration):
         self.progress_slider.setRange(0, duration)
@@ -1397,7 +1488,11 @@ class SodaPlayer(QMainWindow):
         if self.player.state() == QMediaPlayer.PlayingState:
             self.player.pause()
         else:
-            self.player.play()
+            if self.player.mediaStatus() == QMediaPlayer.NoMedia:
+                if self.playlist:
+                    self.play(0)
+            else:
+                self.player.play()
     
     def toggle_play_mode(self):
         self.mode = (self.mode + 1) % 3
@@ -1478,7 +1573,7 @@ class SodaPlayer(QMainWindow):
         for collection in self.collections:
             move_menu.addAction(collection, lambda _, c=collection: self.move_songs(selected_rows, c))
         
-        menu.addAction("🔠 批量重命名", self.batch_rename)
+        menu.addAction("🔠 批量重命名", lambda: self.batch_rename(selected_rows))
         menu.addAction("✏️ 编辑信息", lambda: self.edit_info(selected_rows))
         menu.addSeparator()
         
@@ -1496,7 +1591,11 @@ class SodaPlayer(QMainWindow):
         
         target_path = os.path.join(self.music_folder, target_folder) if target_folder else self.music_folder
         if not os.path.exists(target_path):
-            os.makedirs(target_path)
+            try:
+                os.makedirs(target_path)
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"无法创建目录: {str(e)}")
+                return
         
         moved_count = 0
         for row in rows:
@@ -1522,12 +1621,39 @@ class SodaPlayer(QMainWindow):
         self.full_scan()
         QMessageBox.information(self, "完成", f"成功移动 {moved_count} 首歌曲")
     
-    def batch_rename(self):
-        if not self.playlist:
+    def batch_rename(self, rows):
+        if not rows:
+            QMessageBox.warning(self, "提示", "请先选择要重命名的歌曲")
             return
         
-        self.player.setMedia(QMediaContent())
-        QMessageBox.information(self, "提示", "批量重命名功能正在开发中")
+        prefix, ok = QInputDialog.getText(self, "批量重命名", "请输入前缀:")
+        if ok and prefix:
+            renamed_count = 0
+            for row in rows:
+                if row < len(self.playlist):
+                    song = self.playlist[row]
+                    try:
+                        old_path = song["path"]
+                        dir_name = os.path.dirname(old_path)
+                        file_ext = os.path.splitext(song["name"])[1]
+                        new_name = f"{prefix} {os.path.splitext(song['name'])[0]}{file_ext}"
+                        new_path = os.path.join(dir_name, new_name)
+                        
+                        if old_path != new_path:
+                            shutil.move(old_path, new_path)
+                            
+                            # 重命名歌词文件
+                            lyric_old = os.path.splitext(old_path)[0] + ".lrc"
+                            if os.path.exists(lyric_old):
+                                lyric_new = os.path.join(dir_name, f"{prefix} {os.path.splitext(song['name'])[0]}.lrc")
+                                shutil.move(lyric_old, lyric_new)
+                            
+                            renamed_count += 1
+                    except Exception as e:
+                        print(f"重命名错误: {e}")
+            
+            self.full_scan()
+            QMessageBox.information(self, "完成", f"成功重命名 {renamed_count} 首歌曲")
     
     def edit_info(self, rows):
         dialog = BatchInfoDialog(self)
@@ -1559,9 +1685,9 @@ class SodaPlayer(QMainWindow):
             folder_name = os.path.splitext(song["name"])[0]
             destination_folder = os.path.join(os.path.dirname(source_path), folder_name)
             
-            os.makedirs(destination_folder, exist_ok=True)
-            
             try:
+                os.makedirs(destination_folder, exist_ok=True)
+                
                 # 移动音频文件
                 shutil.move(source_path, os.path.join(destination_folder, song["name"]))
                 
@@ -1572,7 +1698,7 @@ class SodaPlayer(QMainWindow):
                 self.full_scan()
                 QMessageBox.information(self, "完成", "歌曲整理完成")
             except Exception as e:
-                QMessageBox.warning(self, "错误", f"整理失败: {e}")
+                QMessageBox.warning(self, "错误", f"整理失败: {str(e)}")
     
     def search_lyrics(self, index):
         song = self.playlist[index]
@@ -1594,12 +1720,14 @@ class SodaPlayer(QMainWindow):
     def delete_lyrics(self, index):
         lyric_path = os.path.splitext(self.playlist[index]["path"])[0] + ".lrc"
         if os.path.exists(lyric_path):
-            os.remove(lyric_path)
-            QMessageBox.information(self, "完成", "歌词已删除")
+            try:
+                os.remove(lyric_path)
+                QMessageBox.information(self, "完成", "歌词已删除")
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"删除歌词失败: {str(e)}")
         
         if self.current_index == index:
-            self.lyric_panel.clear()
-            self.big_lyric_list.clear()
+            self.clear_lyrics()
     
     def delete_songs(self, rows):
         reply = QMessageBox.question(self, "确认", "确定要删除选中的歌曲吗？", 
@@ -1608,6 +1736,7 @@ class SodaPlayer(QMainWindow):
         if reply == QMessageBox.Yes:
             self.player.setMedia(QMediaContent())
             
+            deleted_count = 0
             for row in rows:
                 if row < len(self.playlist):
                     try:
@@ -1617,10 +1746,13 @@ class SodaPlayer(QMainWindow):
                         lyric_path = os.path.splitext(song_path)[0] + ".lrc"
                         if os.path.exists(lyric_path):
                             os.remove(lyric_path)
+                        
+                        deleted_count += 1
                     except Exception as e:
                         print(f"删除文件错误: {e}")
             
             self.full_scan()
+            QMessageBox.information(self, "完成", f"成功删除 {deleted_count} 首歌曲")
     
     # === B站下载 ===
     def download_bilibili(self):
@@ -1672,8 +1804,11 @@ class SodaPlayer(QMainWindow):
         name, ok = QInputDialog.getText(self, "新建合集", "请输入合集名称:")
         if ok and name:
             safe_name = sanitize_filename(name)
-            os.makedirs(os.path.join(self.music_folder, safe_name), exist_ok=True)
-            self.full_scan()
+            try:
+                os.makedirs(os.path.join(self.music_folder, safe_name), exist_ok=True)
+                self.full_scan()
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"创建合集失败: {str(e)}")
     
     def batch_move_dialog(self):
         selected_rows = sorted(set(item.row() for item in self.song_table.selectedItems()))
@@ -1738,20 +1873,32 @@ class SodaPlayer(QMainWindow):
                 pass
     
     def save_config(self):
-        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump({"folder": self.music_folder}, f, ensure_ascii=False, indent=2)
+        try:
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+                json.dump({"folder": self.music_folder}, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存配置错误: {e}")
     
     def save_metadata(self):
-        with open(METADATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(self.metadata, f, ensure_ascii=False, indent=2)
+        try:
+            with open(METADATA_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.metadata, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存元数据错误: {e}")
     
     def save_offsets(self):
-        with open(OFFSET_FILE, 'w', encoding='utf-8') as f:
-            json.dump(self.saved_offsets, f, ensure_ascii=False, indent=2)
+        try:
+            with open(OFFSET_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.saved_offsets, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存偏移量错误: {e}")
     
     def save_history(self):
-        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(self.history, f, ensure_ascii=False, indent=2)
+        try:
+            with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存历史记录错误: {e}")
 
 # === 主程序入口 ===
 if __name__ == "__main__":
@@ -1765,7 +1912,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     
     # 设置字体
-    font = QFont("Poppins", 10)
+    font = QFont("Segoe UI", 10)
     app.setFont(font)
     
     # 创建主窗口
