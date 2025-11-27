@@ -16,9 +16,10 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QFontDialog, QMenu, QAction, QSlider, QDialog, QRadioButton, 
                              QComboBox, QLineEdit, QTabWidget, QSpinBox, QColorDialog, 
                              QTableWidget, QTableWidgetItem, QHeaderView, QStackedWidget, 
-                             QSplitter, QGroupBox, QScrollArea)
-from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QCoreApplication, QTimer, QPropertyAnimation, QEasingCurve, QRect
+                             QSplitter, QGroupBox, QScrollArea, QSizePolicy, QProgressBar)
+from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QCoreApplication, QTimer, QPropertyAnimation, QEasingCurve, QRect, QSize
 from PyQt5.QtGui import QFont, QColor, QPalette, QPainter, QIcon, QPixmap, QCursor, QFontDatabase
+
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
 # --- 核心配置 ---
@@ -54,6 +55,45 @@ def enable_acrylic(hwnd):
     except: 
         pass
 
+# --- 屏幕适配系统 ---
+class UIScaleManager:
+    def __init__(self):
+        # 基准分辨率 (1920x1080)
+        self.base_width = 1920
+        self.base_height = 1080
+        self.base_font_size = 14
+        self.base_icon_size = 24
+        self.base_padding = 10
+        self.base_margin = 8
+        
+    def get_scale_factor(self, screen_width, screen_height):
+        # 使用对角线作为缩放基准
+        base_diag = (self.base_width ** 2 + self.base_height ** 2) ** 0.5
+        current_diag = (screen_width ** 2 + screen_height ** 2) ** 0.5
+        scale_factor = current_diag / base_diag
+        # 限制缩放范围
+        return max(0.8, min(scale_factor, 1.5))
+    
+    def get_scaled_font_size(self, screen_width, screen_height):
+        scale_factor = self.get_scale_factor(screen_width, screen_height)
+        return int(self.base_font_size * scale_factor)
+    
+    def get_scaled_icon_size(self, screen_width, screen_height):
+        scale_factor = self.get_scale_factor(screen_width, screen_height)
+        return int(self.base_icon_size * scale_factor)
+    
+    def get_scaled_padding(self, screen_width, screen_height):
+        scale_factor = self.get_scale_factor(screen_width, screen_height)
+        return int(self.base_padding * scale_factor)
+    
+    def get_scaled_margin(self, screen_width, screen_height):
+        scale_factor = self.get_scale_factor(screen_width, screen_height)
+        return int(self.base_margin * scale_factor)
+    
+    def get_scaled_size(self, screen_width, screen_height, base_size):
+        scale_factor = self.get_scale_factor(screen_width, screen_height)
+        return int(base_size * scale_factor)
+
 # --- 主题系统 ---
 class ThemeManager:
     def __init__(self):
@@ -73,7 +113,8 @@ class ThemeManager:
                 'text_disabled': '#A0AEC0',
                 'border': '#C8E6C9',
                 'hover': 'rgba(76, 175, 80, 0.08)',
-                'selected': 'rgba(76, 175, 80, 0.15)'
+                'selected': 'rgba(76, 175, 80, 0.15)',
+                'shadow': 'rgba(0, 0, 0, 0.1)'
             }
         }
         self.current_theme = 'light'
@@ -88,7 +129,20 @@ class ThemeManager:
         return False
 
 # --- 样式表生成器 ---
-def generate_stylesheet(theme):
+def generate_stylesheet(theme, scale_manager=None, screen_width=1920, screen_height=1080):
+    if scale_manager is None:
+        scale_manager = UIScaleManager()
+    
+    # 获取缩放后的尺寸
+    font_size = scale_manager.get_scaled_font_size(screen_width, screen_height)
+    padding = scale_manager.get_scaled_padding(screen_width, screen_height)
+    margin = scale_manager.get_scaled_margin(screen_width, screen_height)
+    icon_size = scale_manager.get_scaled_icon_size(screen_width, screen_height)
+    
+    button_height = scale_manager.get_scaled_size(screen_width, screen_height, 40)
+    input_height = scale_manager.get_scaled_size(screen_width, screen_height, 44)
+    table_row_height = scale_manager.get_scaled_size(screen_width, screen_height, 50)
+    
     return f"""
     /* 全局样式 */
     QMainWindow {{
@@ -99,7 +153,7 @@ def generate_stylesheet(theme):
     QWidget {{
         font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
         color: {theme['text_primary']};
-        font-size: 13px;
+        font-size: {font_size}px;
     }}
     
     /* 侧边栏 */
@@ -109,18 +163,18 @@ def generate_stylesheet(theme):
     }}
     
     QLabel#Logo {{
-        font-size: 24px;
+        font-size: {font_size + 10}px;
         font-weight: 900;
         color: {theme['primary']};
-        padding: 30px 20px;
+        padding: {padding * 3}px {padding * 2}px;
         letter-spacing: 1px;
         border-bottom: 1px solid {theme['border']};
     }}
     
     QLabel#SectionTitle {{
-        font-size: 11px;
+        font-size: {font_size - 2}px;
         color: {theme['text_secondary']};
-        padding: 20px 25px 10px 25px;
+        padding: {padding * 2}px {padding * 2.5}px {padding}px {padding * 2.5}px;
         font-weight: bold;
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -131,12 +185,13 @@ def generate_stylesheet(theme):
         background: transparent;
         border: none;
         text-align: left;
-        padding: 12px 25px;
-        font-size: 13px;
+        padding: {padding}px {padding * 2.5}px;
+        font-size: {font_size}px;
         color: {theme['text_secondary']};
         border-radius: 8px;
-        margin: 2px 12px;
+        margin: 2px {margin * 1.5}px;
         border-left: 3px solid transparent;
+        min-height: {button_height}px;
     }}
     
     QPushButton.NavBtn:hover {{
@@ -159,10 +214,11 @@ def generate_stylesheet(theme):
         font-weight: bold;
         border-radius: 20px;
         text-align: center;
-        margin: 15px 20px;
-        padding: 12px;
+        margin: {margin * 2}px {margin * 2.5}px;
+        padding: {padding}px;
         border: none;
-        font-size: 13px;
+        font-size: {font_size}px;
+        min-height: {button_height}px;
     }}
     
     QPushButton#DownloadBtn:hover {{
@@ -174,12 +230,13 @@ def generate_stylesheet(theme):
         background: transparent;
         border: none;
         text-align: left;
-        padding: 12px 25px;
-        font-size: 13px;
+        padding: {padding}px {padding * 2.5}px;
+        font-size: {font_size}px;
         color: {theme['text_secondary']};
         border-radius: 8px;
-        margin: 2px 12px;
+        margin: 2px {margin * 1.5}px;
         border-left: 3px solid transparent;
+        min-height: {button_height}px;
     }}
     
     QPushButton.ToolBtn:hover {{
@@ -194,8 +251,9 @@ def generate_stylesheet(theme):
         border: 1px solid {theme['border']};
         border-radius: 20px;
         color: {theme['text_primary']};
-        padding: 10px 20px;
-        font-size: 13px;
+        padding: {padding}px {padding * 2}px;
+        font-size: {font_size}px;
+        min-height: {input_height}px;
     }}
     
     QLineEdit#SearchBox:focus {{
@@ -208,10 +266,11 @@ def generate_stylesheet(theme):
         background-color: {theme['background']};
         border: none;
         border-bottom: 1px solid {theme['border']};
-        padding: 15px;
+        padding: {padding}px;
         font-weight: bold;
         color: {theme['text_secondary']};
-        font-size: 13px;
+        font-size: {font_size}px;
+        min-height: {table_row_height}px;
     }}
     
     QTableWidget {{
@@ -222,13 +281,14 @@ def generate_stylesheet(theme):
         selection-background-color: transparent;
         border: 1px solid {theme['border']};
         border-radius: 12px;
-        font-size: 13px;
+        font-size: {font_size}px;
     }}
     
     QTableWidget::item {{
-        padding: 15px;
+        padding: {padding}px;
         border-bottom: 1px solid {theme['border']};
         color: {theme['text_primary']};
+        min-height: {table_row_height}px;
     }}
     
     QTableWidget::item:hover {{
@@ -250,19 +310,20 @@ def generate_stylesheet(theme):
         background: transparent;
         border: none;
         outline: none;
-        font-size: 24px;
+        font-size: {font_size + 10}px;
         color: {theme['text_secondary']};
         font-weight: 600;
     }}
     
     QListWidget#BigLyric::item {{
-        padding: 25px;
+        padding: {padding * 2}px;
         text-align: center;
+        min-height: {table_row_height + 20}px;
     }}
     
     QListWidget#BigLyric::item:selected {{
         color: {theme['primary']};
-        font-size: 32px;
+        font-size: {font_size + 18}px;
         font-weight: bold;
     }}
     
@@ -276,20 +337,21 @@ def generate_stylesheet(theme):
         background: transparent;
         border: none;
         outline: none;
-        font-size: 13px;
+        font-size: {font_size}px;
         color: {theme['text_secondary']};
         border: 1px solid {theme['border']};
         border-radius: 12px;
     }}
     
     QListWidget#LyricPanel::item {{
-        padding: 8px 0;
+        padding: {padding}px 0;
         text-align: center;
+        min-height: {table_row_height - 10}px;
     }}
     
     QListWidget#LyricPanel::item:selected {{
         color: {theme['primary']};
-        font-size: 16px;
+        font-size: {font_size + 2}px;
         font-weight: bold;
         background: transparent;
     }}
@@ -306,9 +368,9 @@ def generate_stylesheet(theme):
         color: white;
         border: none;
         border-radius: 25px;
-        font-size: 20px;
-        min-width: 56px;
-        min-height: 56px;
+        font-size: {font_size + 6}px;
+        min-width: {icon_size + 32}px;
+        min-height: {icon_size + 32}px;
     }}
     
     QPushButton#PlayBtn:hover {{
@@ -319,10 +381,10 @@ def generate_stylesheet(theme):
     QPushButton.CtrlBtn {{
         background: transparent;
         border: 1px solid transparent;
-        font-size: 18px;
+        font-size: {font_size + 4}px;
         color: {theme['text_secondary']};
-        min-width: 40px;
-        min-height: 40px;
+        min-width: {icon_size + 16}px;
+        min-height: {icon_size + 16}px;
         border-radius: 6px;
     }}
     
@@ -336,9 +398,10 @@ def generate_stylesheet(theme):
         background: transparent;
         border: 1px solid {theme['border']};
         color: {theme['text_secondary']};
-        padding: 8px 16px;
+        padding: {padding}px {padding * 2}px;
         border-radius: 8px;
-        font-size: 12px;
+        font-size: {font_size - 1}px;
+        min-height: {button_height - 5}px;
     }}
     
     QPushButton.OffsetBtn:hover {{
@@ -349,17 +412,17 @@ def generate_stylesheet(theme):
     
     /* 进度条 */
     QSlider::groove:horizontal {{
-        height: 5px;
+        height: {padding / 2}px;
         background: {theme['border']};
         border-radius: 3px;
     }}
     
     QSlider::handle:horizontal {{
         background: {theme['primary']};
-        width: 14px;
-        height: 14px;
-        margin: -5px 0;
-        border-radius: 7px;
+        width: {icon_size - 10}px;
+        height: {icon_size - 10}px;
+        margin: -{padding / 2}px 0;
+        border-radius: {icon_size / 2 - 5}px;
     }}
     
     QSlider::sub-page:horizontal {{
@@ -371,14 +434,14 @@ def generate_stylesheet(theme):
     QScrollBar:vertical {{
         border: none;
         background: {theme['background']};
-        width: 8px;
+        width: {padding}px;
         margin: 0;
         border-radius: 4px;
     }}
     
     QScrollBar::handle:vertical {{
         background: {theme['border']};
-        min-height: 30px;
+        min-height: {icon_size}px;
         border-radius: 4px;
     }}
     
@@ -394,16 +457,17 @@ def generate_stylesheet(theme):
     QListWidget#CollectionList {{
         background: transparent;
         border: none;
-        font-size: 13px;
+        font-size: {font_size}px;
         color: {theme['text_secondary']};
         outline: none;
     }}
     
     QListWidget#CollectionList::item {{
-        padding: 10px 15px;
+        padding: {padding}px {padding * 1.5}px;
         border-left: 2px solid transparent;
-        margin: 0 10px;
+        margin: 0 {margin}px;
         border-radius: 8px;
+        min-height: {table_row_height - 15}px;
     }}
     
     QListWidget#CollectionList::item:hover {{
@@ -423,9 +487,10 @@ def generate_stylesheet(theme):
         background: transparent;
         border: 1px solid {theme['border']};
         color: {theme['text_secondary']};
-        padding: 8px 16px;
+        padding: {padding}px {padding * 2}px;
         border-radius: 8px;
-        font-size: 12px;
+        font-size: {font_size - 1}px;
+        min-height: {button_height - 5}px;
     }}
     
     QPushButton.ActionBtn:hover {{
@@ -439,9 +504,10 @@ def generate_stylesheet(theme):
         background: transparent;
         border: 1px solid {theme['border']};
         color: {theme['text_secondary']};
-        padding: 6px 12px;
+        padding: {padding - 2}px {padding * 1.5}px;
         border-radius: 8px;
-        font-size: 11px;
+        font-size: {font_size - 2}px;
+        min-height: {button_height - 10}px;
     }}
     
     QPushButton.LyricControlBtn:hover {{
@@ -455,9 +521,11 @@ def generate_stylesheet(theme):
         background: transparent;
         border: none;
         color: {theme['text_secondary']};
-        padding: 6px;
+        padding: {padding - 2}px;
         border-radius: 4px;
-        font-size: 13px;
+        font-size: {font_size}px;
+        min-width: {icon_size}px;
+        min-height: {icon_size}px;
     }}
     
     QPushButton.SongActionBtn:hover {{
@@ -471,10 +539,13 @@ def generate_stylesheet(theme):
         color: {theme['text_primary']};
         border: 1px solid {theme['border']};
         border-radius: 16px;
+        font-size: {font_size}px;
     }}
     
     QDialog QLabel {{
         color: {theme['text_primary']};
+        font-size: {font_size}px;
+        padding: {padding / 2}px;
     }}
     
     QDialog QLineEdit {{
@@ -482,23 +553,42 @@ def generate_stylesheet(theme):
         border: 1px solid {theme['border']};
         border-radius: 8px;
         color: {theme['text_primary']};
-        padding: 12px 16px;
-        font-size: 13px;
+        padding: {padding}px {padding * 1.5}px;
+        font-size: {font_size}px;
+        min-height: {input_height}px;
+        selection-background-color: {theme['selected']};
     }}
     
     QDialog QLineEdit:focus {{
         border: 1px solid {theme['primary']};
+        background: white;
     }}
     
     QDialog QCheckBox {{
         color: {theme['text_primary']};
+        font-size: {font_size}px;
+        spacing: {padding}px;
+        min-height: {icon_size}px;
+    }}
+    
+    QDialog QCheckBox::indicator {{
+        width: {icon_size - 6}px;
+        height: {icon_size - 6}px;
+        border-radius: 4px;
+        border: 1px solid {theme['border']};
+    }}
+    
+    QDialog QCheckBox::indicator:checked {{
+        background: {theme['primary']};
+        border: 1px solid {theme['primary']};
     }}
     
     QDialog QPushButton {{
-        padding: 12px 20px;
+        padding: {padding}px {padding * 2}px;
         border-radius: 8px;
-        font-size: 13px;
+        font-size: {font_size}px;
         font-weight: 600;
+        min-height: {button_height}px;
     }}
     
     QDialog QPushButton[class="primary"] {{
@@ -528,10 +618,11 @@ def generate_stylesheet(theme):
     
     QDialog QTabBar::tab {{
         background: transparent;
-        padding: 12px 20px;
+        padding: {padding}px {padding * 2}px;
         border: none;
         color: {theme['text_secondary']};
         border-bottom: 2px solid transparent;
+        min-height: {button_height}px;
     }}
     
     QDialog QTabBar::tab:selected {{
@@ -544,7 +635,9 @@ def generate_stylesheet(theme):
         border: 1px solid {theme['border']};
         border-radius: 8px;
         color: {theme['text_primary']};
-        padding: 12px 16px;
+        padding: {padding}px {padding * 1.5}px;
+        font-size: {font_size}px;
+        min-height: {input_height}px;
     }}
     
     QDialog QComboBox:focus {{
@@ -553,17 +646,34 @@ def generate_stylesheet(theme):
     
     QDialog QComboBox::drop-down {{
         border: none;
+        width: {icon_size}px;
     }}
     
     QDialog QComboBox::down-arrow {{
         image: none;
         border-left: 1px solid {theme['border']};
-        padding: 0 10px;
+        padding: 0 {padding}px;
+    }}
+    
+    QDialog QSpinBox {{
+        background: {theme['background']};
+        border: 1px solid {theme['border']};
+        border-radius: 8px;
+        color: {theme['text_primary']};
+        padding: {padding}px {padding * 1.5}px;
+        font-size: {font_size}px;
+        min-height: {input_height}px;
+    }}
+    
+    QDialog QSpinBox:focus {{
+        border: 1px solid {theme['primary']};
     }}
     
     /* 分割器样式 */
     QSplitter::handle {{
         background: rgba(76, 175, 80, 0.1);
+        width: {padding / 2}px;
+        height: {padding / 2}px;
     }}
     
     /* 分组框样式 */
@@ -571,14 +681,59 @@ def generate_stylesheet(theme):
         font-weight: bold;
         border: 1px solid {theme['border']};
         border-radius: 8px;
-        margin-top: 10px;
-        padding-top: 10px;
+        margin-top: {padding * 1.5}px;
+        padding-top: {padding * 1.5}px;
+        font-size: {font_size}px;
+        color: {theme['text_primary']};
     }}
     
     QGroupBox::title {{
         subcontrol-origin: margin;
-        left: 10px;
-        padding: 0 5px;
+        left: {padding}px;
+        padding: 0 {padding}px;
+        color: {theme['text_primary']};
+    }}
+    
+    /* 进度条样式 */
+    QProgressBar {{
+        border: 1px solid {theme['border']};
+        border-radius: 4px;
+        background: {theme['background']};
+        text-align: center;
+        color: {theme['text_primary']};
+        font-size: {font_size - 1}px;
+    }}
+    
+    QProgressBar::chunk {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {theme['primary']}, stop:1 {theme['primary-light']});
+        border-radius: 3px;
+    }}
+    
+    /* 菜单样式 */
+    QMenu {{
+        background: {theme['surface']};
+        color: {theme['text_primary']};
+        border: 1px solid {theme['border']};
+        border-radius: 8px;
+        padding: {padding / 2}px;
+        font-size: {font_size}px;
+    }}
+    
+    QMenu::item {{
+        padding: {padding}px {padding * 1.5}px;
+        border-radius: 4px;
+        min-height: {button_height - 5}px;
+    }}
+    
+    QMenu::item:selected {{
+        background: {theme['selected']};
+        color: {theme['primary']};
+    }}
+    
+    QMenu::separator {{
+        height: 1px;
+        background: {theme['border']};
+        margin: {padding / 2}px {padding}px;
     }}
     """
 
@@ -716,7 +871,7 @@ def load_font_awesome():
 # 图标映射
 ICONS = {
     "music": "🎵",
-    "download": "⬇",
+    "download": "⬇️",
     "disc": "💿",
     "history": "🕒",
     "heart": "❤️",
@@ -730,22 +885,26 @@ ICONS = {
     "search": "🔍",
     "edit": "✏️",
     "random": "🔀",
-    "play": "▶",
-    "pause": "⏸",
+    "play": "▶️",
+    "pause": "⏸️",
     "ellipsis": "⋯",
-    "step_backward": "⏮",
-    "step_forward": "⏭",
+    "step_backward": "⏮️",
+    "step_forward": "⏭️",
     "retweet": "🔁",
     "volume": "🔊",
     "sliders": "🎚️",
     "youtube": "📺",
     "save": "💾",
-    "check": "✓",
+    "check": "✅",
     "text_height": "🔤",
     "palette": "🎨",
     "font": "🔡",
     "align_center": "☰",
-    "chevron_down": "⌄"
+    "chevron_down": "⌄",
+    "close": "❌",
+    "info": "ℹ️",
+    "warning": "⚠️",
+    "error": "❌"
 }
 
 # --- 对话框类 ---
@@ -753,16 +912,32 @@ class LyricSearchDialog(QDialog):
     def __init__(self, song_name, duration_ms=0, parent=None):
         super().__init__(parent)
         self.setWindowTitle("搜索歌词")
-        self.resize(600, 400)
+        
+        # 获取屏幕尺寸和缩放管理器
+        screen = QApplication.primaryScreen()
+        screen_size = screen.size()
+        self.scale_manager = parent.scale_manager if hasattr(parent, 'scale_manager') else UIScaleManager()
+        self.theme_manager = parent.theme_manager if hasattr(parent, 'theme_manager') else ThemeManager()
+        
+        # 设置对话框尺寸
+        dialog_width = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 700)
+        dialog_height = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 500)
+        self.resize(dialog_width, dialog_height)
+        
         self.result_id = None
         self.duration_ms = duration_ms
         
-        theme = parent.theme_manager.get_theme() if hasattr(parent, 'theme_manager') else ThemeManager().get_theme()
-        self.setStyleSheet(generate_stylesheet(theme))
+        theme = self.theme_manager.get_theme()
+        self.setStyleSheet(generate_stylesheet(theme, self.scale_manager, screen_size.width(), screen_size.height()))
         
         layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
+        layout.setContentsMargins(
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2
+        )
         
         # 搜索框
         search_layout = QHBoxLayout()
@@ -840,14 +1015,29 @@ class BatchInfoDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("编辑信息")
-        self.resize(400, 300)
         
-        theme = parent.theme_manager.get_theme() if hasattr(parent, 'theme_manager') else ThemeManager().get_theme()
-        self.setStyleSheet(generate_stylesheet(theme))
+        # 获取屏幕尺寸和缩放管理器
+        screen = QApplication.primaryScreen()
+        screen_size = screen.size()
+        self.scale_manager = parent.scale_manager if hasattr(parent, 'scale_manager') else UIScaleManager()
+        self.theme_manager = parent.theme_manager if hasattr(parent, 'theme_manager') else ThemeManager()
+        
+        # 设置对话框尺寸
+        dialog_width = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 500)
+        dialog_height = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 400)
+        self.resize(dialog_width, dialog_height)
+        
+        theme = self.theme_manager.get_theme()
+        self.setStyleSheet(generate_stylesheet(theme, self.scale_manager, screen_size.width(), screen_size.height()))
         
         layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
+        layout.setContentsMargins(
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2
+        )
         
         # 歌曲标题
         title_group = QGroupBox("歌曲信息")
@@ -904,14 +1094,29 @@ class DownloadDialog(QDialog):
     def __init__(self, parent=None, current_p=1, collections=[]):
         super().__init__(parent)
         self.setWindowTitle("下载")
-        self.resize(500, 400)
         
-        theme = parent.theme_manager.get_theme() if hasattr(parent, 'theme_manager') else ThemeManager().get_theme()
-        self.setStyleSheet(generate_stylesheet(theme))
+        # 获取屏幕尺寸和缩放管理器
+        screen = QApplication.primaryScreen()
+        screen_size = screen.size()
+        self.scale_manager = parent.scale_manager if hasattr(parent, 'scale_manager') else UIScaleManager()
+        self.theme_manager = parent.theme_manager if hasattr(parent, 'theme_manager') else ThemeManager()
+        
+        # 设置对话框尺寸
+        dialog_width = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 600)
+        dialog_height = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 500)
+        self.resize(dialog_width, dialog_height)
+        
+        theme = self.theme_manager.get_theme()
+        self.setStyleSheet(generate_stylesheet(theme, self.scale_manager, screen_size.width(), screen_size.height()))
         
         layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
+        layout.setContentsMargins(
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2
+        )
         
         # 视频链接
         url_group = QGroupBox("视频链接")
@@ -927,7 +1132,7 @@ class DownloadDialog(QDialog):
         # 下载设置标签页
         settings_tab = QWidget()
         settings_layout = QVBoxLayout(settings_tab)
-        settings_layout.setSpacing(15)
+        settings_layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
         
         # 下载模式
         mode_group = QGroupBox("下载模式")
@@ -1007,14 +1212,29 @@ class SyncLyricsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("歌词同步")
-        self.resize(450, 350)
         
-        theme = parent.theme_manager.get_theme() if hasattr(parent, 'theme_manager') else ThemeManager().get_theme()
-        self.setStyleSheet(generate_stylesheet(theme))
+        # 获取屏幕尺寸和缩放管理器
+        screen = QApplication.primaryScreen()
+        screen_size = screen.size()
+        self.scale_manager = parent.scale_manager if hasattr(parent, 'scale_manager') else UIScaleManager()
+        self.theme_manager = parent.theme_manager if hasattr(parent, 'theme_manager') else ThemeManager()
+        
+        # 设置对话框尺寸
+        dialog_width = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 500)
+        dialog_height = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 400)
+        self.resize(dialog_width, dialog_height)
+        
+        theme = self.theme_manager.get_theme()
+        self.setStyleSheet(generate_stylesheet(theme, self.scale_manager, screen_size.width(), screen_size.height()))
         
         layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
+        layout.setContentsMargins(
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2
+        )
         
         # 当前播放时间
         time_group = QGroupBox("当前播放时间")
@@ -1069,14 +1289,24 @@ class SyncLyricsDialog(QDialog):
         self.offset_label.setText(f"当前偏移: {value}秒")
 
 class DesktopLyricWindow(QWidget):
-    def __init__(self):
+    def __init__(self, scale_manager=None):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
-        self.resize(1200, 180)
+        # 获取屏幕尺寸和缩放管理器
+        screen = QApplication.primaryScreen()
+        screen_size = screen.size()
+        self.scale_manager = scale_manager if scale_manager else UIScaleManager()
+        
+        # 设置窗口尺寸
+        window_width = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 1200)
+        window_height = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 180)
+        self.resize(window_width, window_height)
+        
         self.color = QColor(76, 175, 80)  # 主题绿色
-        self.font = QFont("Segoe UI", 36, QFont.Bold)
+        base_font_size = self.scale_manager.get_scaled_font_size(screen_size.width(), screen_size.height())
+        self.font = QFont("Segoe UI", base_font_size + 22, QFont.Bold)
         self.locked = False
         
         layout = QVBoxLayout(self)
@@ -1091,7 +1321,6 @@ class DesktopLyricWindow(QWidget):
     
     def update_style(self):
         shadow_color = QColor(0, 0, 0, 100)
-        font_size = self.font.pointSize()
         
         for i, label in enumerate(self.labels):
             effect = QGraphicsDropShadowEffect()
@@ -1101,7 +1330,11 @@ class DesktopLyricWindow(QWidget):
             label.setGraphicsEffect(effect)
             
             font = QFont(self.font)
-            font.setPointSize(font_size if i == 1 else int(font_size * 0.6))
+            if i == 1:  # 当前歌词
+                font_size = self.font.pointSize()
+            else:  # 上下歌词
+                font_size = int(self.font.pointSize() * 0.6)
+            font.setPointSize(font_size)
             
             color = self.color.name() if i == 1 else f"rgba({self.color.red()},{self.color.green()},{self.color.blue()},100)"
             label.setStyleSheet(f"color: {color}")
@@ -1150,13 +1383,22 @@ class SodaPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("汽水音乐 2025 - 自然清新版")
-        self.resize(1280, 820)
         
-        # 初始化主题管理器
+        # 初始化缩放管理器和主题管理器
+        self.scale_manager = UIScaleManager()
         self.theme_manager = ThemeManager()
         
+        # 获取屏幕尺寸
+        screen = QApplication.primaryScreen()
+        screen_size = screen.size()
+        
+        # 设置窗口尺寸
+        window_width = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 1280)
+        window_height = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 820)
+        self.resize(window_width, window_height)
+        
         # 设置样式
-        self.setStyleSheet(generate_stylesheet(self.theme_manager.get_theme()))
+        self.setStyleSheet(generate_stylesheet(self.theme_manager.get_theme(), self.scale_manager, screen_size.width(), screen_size.height()))
         self.setAttribute(Qt.WA_TranslucentBackground)
         
         # Windows 毛玻璃效果
@@ -1192,7 +1434,7 @@ class SodaPlayer(QMainWindow):
         self.player.setVolume(self.volume)
         
         # 初始化桌面歌词
-        self.desktop_lyric = DesktopLyricWindow()
+        self.desktop_lyric = DesktopLyricWindow(self.scale_manager)
         self.desktop_lyric.show()
         
         # 初始化界面
@@ -1212,7 +1454,8 @@ class SodaPlayer(QMainWindow):
         # === 左侧边栏 ===
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(240)
+        sidebar_width = self.scale_manager.get_scaled_size(self.width(), self.height(), 240)
+        sidebar.setFixedWidth(sidebar_width)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(5)
@@ -1311,17 +1554,20 @@ class SodaPlayer(QMainWindow):
         
         # 顶部栏
         top_bar = QWidget()
-        top_bar.setFixedHeight(70)
+        top_bar_height = self.scale_manager.get_scaled_size(self.width(), self.height(), 70)
+        top_bar.setFixedHeight(top_bar_height)
         top_layout = QHBoxLayout(top_bar)
         top_layout.setContentsMargins(30, 15, 30, 15)
         
         self.title_label = QLabel("全部音乐")
-        self.title_label.setStyleSheet("font-size: 26px; font-weight: bold; color: #4CAF50;")
+        title_font_size = self.scale_manager.get_scaled_font_size(self.width(), self.height(), 26)
+        self.title_label.setStyleSheet(f"font-size: {title_font_size}px; font-weight: bold; color: #4CAF50;")
         
         self.search_box = QLineEdit()
         self.search_box.setObjectName("SearchBox")
         self.search_box.setPlaceholderText(f"{ICONS['search']} 搜索歌曲、歌手或专辑...")
-        self.search_box.setFixedWidth(280)
+        search_width = self.scale_manager.get_scaled_size(self.width(), self.height(), 280)
+        self.search_box.setFixedWidth(search_width)
         self.search_box.textChanged.connect(self.filter_list)
         
         top_layout.addWidget(self.title_label)
@@ -1332,8 +1578,10 @@ class SodaPlayer(QMainWindow):
         # 内容区域
         content_widget = QWidget()
         content_layout = QHBoxLayout(content_widget)
-        content_layout.setContentsMargins(20, 0, 20, 20)
-        content_layout.setSpacing(20)
+        content_margin = self.scale_manager.get_scaled_padding(self.width(), self.height(), 20)
+        content_spacing = self.scale_manager.get_scaled_margin(self.width(), self.height(), 20)
+        content_layout.setContentsMargins(content_margin, 0, content_margin, content_margin)
+        content_layout.setSpacing(content_spacing)
         
         # 分割器
         splitter = QSplitter(Qt.Horizontal)
@@ -1346,12 +1594,14 @@ class SodaPlayer(QMainWindow):
         
         # 歌曲表格头部
         song_table_header = QWidget()
-        song_table_header.setFixedHeight(60)
+        song_table_header_height = self.scale_manager.get_scaled_size(self.width(), self.height(), 60)
+        song_table_header.setFixedHeight(song_table_header_height)
         song_header_layout = QHBoxLayout(song_table_header)
         song_header_layout.setContentsMargins(20, 15, 20, 15)
         
         song_table_title = QLabel("歌曲列表")
-        song_table_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #1B5E20;")
+        song_table_font_size = self.scale_manager.get_scaled_font_size(self.width(), self.height(), 18)
+        song_table_title.setStyleSheet(f"font-size: {song_table_font_size}px; font-weight: bold; color: #1B5E20;")
         
         song_table_actions = QHBoxLayout()
         song_table_actions.setSpacing(10)
@@ -1395,19 +1645,22 @@ class SodaPlayer(QMainWindow):
         
         # 歌词面板
         lyric_panel = QWidget()
-        lyric_panel.setFixedWidth(320)
+        lyric_panel_width = self.scale_manager.get_scaled_size(self.width(), self.height(), 320)
+        lyric_panel.setFixedWidth(lyric_panel_width)
         lyric_layout = QVBoxLayout(lyric_panel)
         lyric_layout.setContentsMargins(0, 0, 0, 0)
         lyric_layout.setSpacing(0)
         
         # 歌词面板头部
         lyric_header = QWidget()
-        lyric_header.setFixedHeight(50)
+        lyric_header_height = self.scale_manager.get_scaled_size(self.width(), self.height(), 50)
+        lyric_header.setFixedHeight(lyric_header_height)
         lyric_header_layout = QHBoxLayout(lyric_header)
         lyric_header_layout.setContentsMargins(20, 15, 20, 15)
         
         lyric_title = QLabel("歌词")
-        lyric_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1B5E20;")
+        lyric_title_font_size = self.scale_manager.get_scaled_font_size(self.width(), self.height(), 16)
+        lyric_title.setStyleSheet(f"font-size: {lyric_title_font_size}px; font-weight: bold; color: #1B5E20;")
         
         lyric_controls = QHBoxLayout()
         lyric_controls.setSpacing(8)
@@ -1418,6 +1671,7 @@ class SodaPlayer(QMainWindow):
         
         search_lyrics_button = QPushButton(f"{ICONS['search']} 搜索")
         search_lyrics_button.setProperty("class", "LyricControlBtn")
+        search_lyrics_button.clicked.connect(self.manual_search_lyrics)
         
         lyric_controls.addWidget(sync_lyrics_button)
         lyric_controls.addWidget(search_lyrics_button)
@@ -1449,7 +1703,8 @@ class SodaPlayer(QMainWindow):
         page1 = QWidget()
         page1.setObjectName("LyricsPage")
         page1_layout = QVBoxLayout(page1)
-        page1_layout.setContentsMargins(60, 60, 60, 60)
+        page1_margin = self.scale_manager.get_scaled_padding(self.width(), self.height(), 60)
+        page1_layout.setContentsMargins(page1_margin, page1_margin, page1_margin, page1_margin)
         
         # 歌词容器
         lyrics_container = QWidget()
@@ -1457,12 +1712,14 @@ class SodaPlayer(QMainWindow):
         
         # 左侧封面和信息
         left_widget = QWidget()
-        left_widget.setFixedWidth(320)
+        left_widget_width = self.scale_manager.get_scaled_size(self.width(), self.height(), 320)
+        left_widget.setFixedWidth(left_widget_width)
         left_layout = QVBoxLayout(left_widget)
         left_layout.setAlignment(Qt.AlignCenter)
         
         self.cover_label = QLabel()
-        self.cover_label.setFixedSize(280, 280)
+        cover_size = self.scale_manager.get_scaled_size(self.width(), self.height(), 280)
+        self.cover_label.setFixedSize(cover_size, cover_size)
         self.cover_label.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4CAF50, stop:1 #81C784); border-radius: 16px;")
         
         self.song_title_label = QLabel("歌曲标题")
@@ -1493,7 +1750,8 @@ class SodaPlayer(QMainWindow):
         
         # 歌词控制栏
         lyrics_controls = QWidget()
-        lyrics_controls.setFixedHeight(80)
+        lyrics_controls_height = self.scale_manager.get_scaled_size(self.width(), self.height(), 80)
+        lyrics_controls.setFixedHeight(lyrics_controls_height)
         lyrics_controls_layout = QHBoxLayout(lyrics_controls)
         lyrics_controls_layout.setAlignment(Qt.AlignCenter)
         
@@ -1531,9 +1789,11 @@ class SodaPlayer(QMainWindow):
         # === 底部播放控制栏 ===
         player_bar = QFrame()
         player_bar.setObjectName("PlayerBar")
-        player_bar.setFixedHeight(100)
+        player_bar_height = self.scale_manager.get_scaled_size(self.width(), self.height(), 100)
+        player_bar.setFixedHeight(player_bar_height)
         player_layout = QVBoxLayout(player_bar)
-        player_layout.setContentsMargins(25, 15, 25, 15)
+        player_margin = self.scale_manager.get_scaled_padding(self.width(), self.height(), 25)
+        player_layout.setContentsMargins(player_margin, 15, player_margin, 15)
         
         # 进度条
         progress_layout = QHBoxLayout()
@@ -1563,7 +1823,8 @@ class SodaPlayer(QMainWindow):
         info_layout.setContentsMargins(0, 0, 0, 0)
         
         self.cover_button = QPushButton()
-        self.cover_button.setFixedSize(50, 50)
+        cover_button_size = self.scale_manager.get_scaled_size(self.width(), self.height(), 50)
+        self.cover_button.setFixedSize(cover_button_size, cover_button_size)
         self.cover_button.setCursor(Qt.PointingHandCursor)
         self.cover_button.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4CAF50, stop:1 #81C784); border-radius: 8px; border: none;")
         self.cover_button.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(1))
@@ -1627,7 +1888,8 @@ class SodaPlayer(QMainWindow):
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
-        self.volume_slider.setFixedWidth(90)
+        volume_slider_width = self.scale_manager.get_scaled_size(self.width(), self.height(), 90)
+        self.volume_slider.setFixedWidth(volume_slider_width)
         self.volume_slider.valueChanged.connect(self.player.setVolume)
         
         self.offset_button = QPushButton(f"{ICONS['sliders']} 微调")
@@ -1756,17 +2018,18 @@ class SodaPlayer(QMainWindow):
         
         play_button = QPushButton(f"{ICONS['play']}")
         play_button.setProperty("class", "SongActionBtn")
-        play_button.setFixedSize(30, 30)
+        icon_size = self.scale_manager.get_scaled_icon_size(self.width(), self.height())
+        play_button.setFixedSize(icon_size, icon_size)
         play_button.clicked.connect(lambda: self.play(row))
         
         edit_button = QPushButton(f"{ICONS['edit']}")
         edit_button.setProperty("class", "SongActionBtn")
-        edit_button.setFixedSize(30, 30)
+        edit_button.setFixedSize(icon_size, icon_size)
         edit_button.clicked.connect(lambda: self.edit_song_info(row))
         
         more_button = QPushButton(f"{ICONS['ellipsis']}")
         more_button.setProperty("class", "SongActionBtn")
-        more_button.setFixedSize(30, 30)
+        more_button.setFixedSize(icon_size, icon_size)
         
         action_layout.addWidget(play_button)
         action_layout.addWidget(edit_button)
@@ -1842,22 +2105,25 @@ class SodaPlayer(QMainWindow):
                 self.lyric_panel.addItem("搜索歌词...")
                 self.big_lyric_list.addItem("搜索歌词...")
                 
-                self.lyric_search_worker = LyricListSearchWorker(song_name)
-                self.lyric_search_worker.search_finished.connect(self.auto_search_lyrics)
-                self.lyric_search_worker.start()
+                # 自动搜索歌词
+                self.auto_search_lyrics(song_name, lyric_path)
                 
         except Exception as e:
             print(f"播放错误: {e}")
             QMessageBox.warning(self, "播放错误", f"无法播放文件: {str(e)}")
     
-    def clear_lyrics(self):
-        self.lyrics = []
-        self.lyric_panel.clear()
-        self.big_lyric_list.clear()
+    def auto_search_lyrics(self, song_name, lyric_path):
+        """自动搜索歌词"""
+        self.lyric_search_worker = LyricListSearchWorker(song_name)
+        self.lyric_search_worker.search_finished.connect(
+            lambda results: self.on_auto_search_finished(results, lyric_path)
+        )
+        self.lyric_search_worker.start()
     
-    def auto_search_lyrics(self, results):
+    def on_auto_search_finished(self, results, lyric_path):
+        """自动搜索完成回调"""
         if results and self.current_index >= 0:
-            lyric_path = os.path.splitext(self.playlist[self.current_index]["path"])[0] + ".lrc"
+            # 下载第一首匹配的歌词
             self.lyric_downloader = LyricDownloader(results[0]['id'], lyric_path)
             self.lyric_downloader.finished_signal.connect(self.parse_lyrics)
             self.lyric_downloader.start()
@@ -1865,6 +2131,11 @@ class SodaPlayer(QMainWindow):
             self.clear_lyrics()
             self.lyric_panel.addItem("无歌词")
             self.big_lyric_list.addItem("无歌词")
+    
+    def clear_lyrics(self):
+        self.lyrics = []
+        self.lyric_panel.clear()
+        self.big_lyric_list.clear()
     
     def parse_lyrics(self, lyrics_text):
         self.lyrics = []
@@ -2013,7 +2284,7 @@ class SodaPlayer(QMainWindow):
             self.theme_manager.themes['light']['primary'] = color.name()
             self.theme_manager.themes['light']['primary-light'] = color.lighter(120).name()
             self.theme_manager.themes['light']['primary-dark'] = color.darker(120).name()
-            self.setStyleSheet(generate_stylesheet(self.theme_manager.get_theme()))
+            self.update_stylesheet()
     
     def adjust_font_family(self):
         font, ok = QFontDialog.getFont(self.big_lyric_list.font(), self)
@@ -2038,6 +2309,27 @@ class SodaPlayer(QMainWindow):
     def sync_lyrics(self):
         dialog = SyncLyricsDialog(self)
         dialog.exec_()
+    
+    def manual_search_lyrics(self):
+        """手动搜索歌词"""
+        if not self.playlist or self.current_index < 0:
+            QMessageBox.warning(self, "提示", "请先选择一首歌曲")
+            return
+        
+        song = self.playlist[self.current_index]
+        duration = self.player.duration()
+        
+        dialog = LyricSearchDialog(os.path.splitext(song["name"])[0], duration, self)
+        if dialog.exec_() == QDialog.Accepted and dialog.result_id:
+            lyric_path = os.path.splitext(song["path"])[0] + ".lrc"
+            self.lyric_downloader = LyricDownloader(dialog.result_id, lyric_path)
+            self.lyric_downloader.finished_signal.connect(lambda lyrics: self.on_manual_lyrics_downloaded(lyrics))
+            self.lyric_downloader.start()
+    
+    def on_manual_lyrics_downloaded(self, lyrics):
+        """手动歌词下载完成回调"""
+        self.parse_lyrics(lyrics)
+        QMessageBox.information(self, "成功", "歌词下载成功")
     
     # === 文件操作 ===
     def show_context_menu(self, position):
@@ -2072,7 +2364,7 @@ class SodaPlayer(QMainWindow):
         if len(selected_rows) == 1:
             index = selected_rows[0]
             menu.addAction("🔐 绑定/整理", lambda: self.bind_song(index))
-            menu.addAction("🔍 搜索歌词", lambda: self.search_lyrics(index))
+            menu.addAction("🔍 搜索歌词", lambda: self.manual_search_lyrics())
             menu.addAction("❌ 删除歌词", lambda: self.delete_lyrics(index))
         
         menu.addAction("🗑️ 删除", lambda: self.delete_songs(selected_rows))
@@ -2238,23 +2530,6 @@ class SodaPlayer(QMainWindow):
             except Exception as e:
                 QMessageBox.warning(self, "错误", f"整理失败: {str(e)}")
     
-    def search_lyrics(self, index):
-        song = self.playlist[index]
-        duration = self.player.duration() if self.current_index == index else 0
-        
-        dialog = LyricSearchDialog(os.path.splitext(song["name"])[0], duration, self)
-        if dialog.exec_() == QDialog.Accepted and dialog.result_id:
-            lyric_path = os.path.splitext(song["path"])[0] + ".lrc"
-            self.lyric_downloader = LyricDownloader(dialog.result_id, lyric_path)
-            self.lyric_downloader.finished_signal.connect(lambda lyrics: self.on_lyrics_downloaded(lyrics, index))
-            self.lyric_downloader.start()
-    
-    def on_lyrics_downloaded(self, lyrics, index):
-        if self.current_index == index:
-            self.parse_lyrics(lyrics)
-        
-        QMessageBox.information(self, "完成", "歌词绑定成功")
-    
     def delete_lyrics(self, index):
         lyric_path = os.path.splitext(self.playlist[index]["path"])[0] + ".lrc"
         if os.path.exists(lyric_path):
@@ -2368,6 +2643,17 @@ class SodaPlayer(QMainWindow):
             self.desktop_lyric.hide()
         else:
             self.desktop_lyric.show()
+    
+    def update_stylesheet(self):
+        """更新样式表"""
+        screen = QApplication.primaryScreen()
+        screen_size = screen.size()
+        self.setStyleSheet(generate_stylesheet(
+            self.theme_manager.get_theme(), 
+            self.scale_manager, 
+            screen_size.width(), 
+            screen_size.height()
+        ))
     
     # === 配置管理 ===
     def load_config(self):
