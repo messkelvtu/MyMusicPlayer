@@ -38,14 +38,14 @@ jobs:
           --hidden-import=chardet `
           --hidden-import=idna `
           --add-data=".;." `
-          --name "MaterialMusicPlayer" `
+          --name "LightMusicPlayer" `
           main.py
 
     - name: Verify EXE
       run: |
-        if (Test-Path "dist/MaterialMusicPlayer.exe") {
+        if (Test-Path "dist/LightMusicPlayer.exe") {
           echo "✅ EXE 文件创建成功"
-          echo "文件大小: $((Get-Item 'dist/MaterialMusicPlayer.exe').Length) bytes"
+          echo "文件大小: $((Get-Item 'dist/LightMusicPlayer.exe').Length) bytes"
         } else {
           echo "❌ EXE 文件未找到"
           exit 1
@@ -54,6 +54,6 @@ jobs:
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: MaterialMusicPlayer-EXE
-        path: dist/MaterialMusicPlayer.exe
+        name: LightMusicPlayer-EXE
+        path: dist/LightMusicPlayer.exe
         retention-days: 30
