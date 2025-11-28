@@ -2,14 +2,16 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPush
                            QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
                            QLabel, QMessageBox, QGroupBox, QRadioButton, QComboBox,
                            QTabWidget, QWidget, QSlider, QApplication, QColorDialog,
-                           QFontDialog, QInputDialog, QFileDialog, QCheckBox, QSpinBox)
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QFont
+                           QFontDialog, QInputDialog, QFileDialog, QCheckBox, QSpinBox,
+                           QProgressBar, QGridLayout)
+from PyQt5.QtCore import Qt, QUrl
+from PyQt5.QtGui import QColor, QFont, QDesktopServices
 
 from ui_scale_manager import UIScaleManager
 from theme_manager import ThemeManager
 from style_generator import generate_stylesheet
 from utils import ICONS, LyricListSearchWorker, LyricDownloader
+from bilibili_downloader import BilibiliDownloader
 
 # -- 对话框类 --  
 class LyricSearchDialog(QDialog):  
@@ -196,14 +198,11 @@ class BatchInfoDialog(QDialog):
         self.year_input.setText(year)
 
 
-
-
-
-class DownloadDialog(QDialog):
-    def __init__(self, parent=None, current_p=1, collections=[]):
+class BilibiliDownloadDialog(QDialog):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("下载")
-
+        self.setWindowTitle("B站音频下载")
+        
         # 获取屏幕尺寸和缩放管理器
         screen = QApplication.primaryScreen()
         screen_size = screen.size()
@@ -218,183 +217,183 @@ class DownloadDialog(QDialog):
         theme = self.theme_manager.get_theme()
         self.setStyleSheet(generate_stylesheet(theme, self.scale_manager, screen_size.width(), screen_size.height()))
 
-        layout = QVBoxLayout(self)
-        layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
+        # 主布局
+        main_layout = QVBoxLayout(self)
+        padding = self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height())
+        main_layout.setContentsMargins(padding*2, padding*2, padding*2, padding*2)
+        main_layout.setSpacing(padding)
 
-        layout.setContentsMargins(
-            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
-            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
-            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
-            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2
-        )
-
-        # 视频链接
-        url_group = QGroupBox("视频链接")
-        url_layout = QVBoxLayout(url_group)
+        # URL输入
+        url_layout = QHBoxLayout()
+        url_label = QLabel("视频链接:")
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("请输入 B 站视频链接")
+        self.url_input.setPlaceholderText("输入B站视频或 playlist 链接")
+        url_layout.addWidget(url_label)
         url_layout.addWidget(self.url_input)
-        layout.addWidget(url_group)
+        main_layout.addLayout(url_layout)
 
-        # 标签页
-        self.tab_widget = QTabWidget()
-
-        # 下载设置标签页
-        settings_tab = QWidget()
-        settings_layout = QVBoxLayout(settings_tab)
-        settings_layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
-
-        # 下载模式
-        mode_group = QGroupBox("下载模式")
-        mode_layout = QVBoxLayout(mode_group)
-        self.single_radio = QRadioButton("单曲下载")
-        self.playlist_radio = QRadioButton("合集下载")
+        # 下载设置
+        settings_group = QGroupBox("下载设置")
+        settings_layout = QGridLayout(settings_group)
+        
+        # 下载模式选择
+        mode_label = QLabel("下载模式:")
+        self.single_radio = QRadioButton("单个视频")
+        self.playlist_radio = QRadioButton("播放列表")
         self.single_radio.setChecked(True)
-        mode_layout.addWidget(self.single_radio)
-        mode_layout.addWidget(self.playlist_radio)
-        settings_layout.addWidget(mode_group)
+        
+        # 范围选择
+        range_label = QLabel("范围:")
+        self.start_spin = QSpinBox()
+        self.start_spin.setMinimum(1)
+        self.start_spin.setValue(1)
+        self.end_spin = QSpinBox()
+        self.end_spin.setMinimum(1)
+        self.end_spin.setValue(1)
+        range_label2 = QLabel("-")
+        
+        # 路径选择
+        path_label = QLabel("保存路径:")
+        self.path_input = QLineEdit()
+        self.path_input.setText(os.path.expanduser("~/Music"))
+        self.browse_btn = QPushButton("浏览...")
+        self.browse_btn.clicked.connect(self.browse_path)
+        
+        # 格式选择
+        format_label = QLabel("格式:")
+        self.format_combo = QComboBox()
+        self.format_combo.addItems(["仅音频 (MP3)", "视频 (MP4)"])
+        self.format_combo.setCurrentIndex(0)
 
-        # 保存位置
-        location_group = QGroupBox("保存位置")
-        location_layout = QVBoxLayout(location_group)
-        self.folder_combo = QComboBox()
-        self.folder_combo.addItem("根目录", "")
-        for collection in collections:
-            self.folder_combo.addItem(f"{ICONS['folder_open']} {collection}", collection)
-        self.folder_combo.addItem(f"{ICONS['folder_plus']} 新建...", "NEW")
-        location_layout.addWidget(self.folder_combo)
+        # 添加到布局
+        settings_layout.addWidget(mode_label, 0, 0)
+        settings_layout.addWidget(self.single_radio, 0, 1)
+        settings_layout.addWidget(self.playlist_radio, 0, 2)
+        
+        settings_layout.addWidget(range_label, 1, 0)
+        settings_layout.addWidget(self.start_spin, 1, 1)
+        settings_layout.addWidget(range_label2, 1, 2)
+        settings_layout.addWidget(self.end_spin, 1, 3)
+        
+        settings_layout.addWidget(path_label, 2, 0)
+        settings_layout.addWidget(self.path_input, 2, 1, 1, 3)
+        settings_layout.addWidget(self.browse_btn, 2, 4)
+        
+        settings_layout.addWidget(format_label, 3, 0)
+        settings_layout.addWidget(self.format_combo, 3, 1)
+        
+        main_layout.addWidget(settings_group)
 
-        self.new_folder_input = QLineEdit()
-        self.new_folder_input.setPlaceholderText("文件夹名称")
-        self.new_folder_input.hide()
-        location_layout.addWidget(self.new_folder_input)
-
-        self.folder_combo.currentIndexChanged.connect(self.on_folder_combo_changed)
-        settings_layout.addWidget(location_group)
-
-        # 预设信息
-        preset_group = QGroupBox("预设信息")
-        preset_layout = QVBoxLayout(preset_group)
-        self.artist_input = QLineEdit()
-        self.artist_input.setPlaceholderText("预设歌手")
-        preset_layout.addWidget(self.artist_input)
-
-        self.album_input = QLineEdit()
-        self.album_input.setPlaceholderText("预设专辑")
-        preset_layout.addWidget(self.album_input)
-        settings_layout.addWidget(preset_group)
-
-        self.tab_widget.addTab(settings_tab, "下载设置")
-
-        # 高级选项标签页
-        advanced_tab = QWidget()
-        advanced_layout = QVBoxLayout(advanced_tab)
-        advanced_layout.addWidget(QLabel("高级选项内容..."))
-        self.tab_widget.addTab(advanced_tab, "高级选项")
-
-        layout.addWidget(self.tab_widget)
+        # 进度显示
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setValue(0)
+        main_layout.addWidget(self.progress_bar)
+        
+        self.status_label = QLabel("等待开始...")
+        main_layout.addWidget(self.status_label)
 
         # 按钮
-        button_layout = QHBoxLayout()
-        self.cancel_button = QPushButton("取消")
-        self.cancel_button.setProperty("class", "outline")
-        self.cancel_button.clicked.connect(self.reject)
-        self.download_button = QPushButton(f"{ICONS['download']} 开始下载")
-        self.download_button.setProperty("class", "primary")
-        self.download_button.clicked.connect(self.accept)
-        button_layout.addWidget(self.cancel_button)
-        button_layout.addWidget(self.download_button)
-        layout.addLayout(button_layout)
+        btn_layout = QHBoxLayout()
+        self.start_btn = QPushButton("开始下载")
+        self.start_btn.setObjectName("DownloadBtn")
+        self.start_btn.clicked.connect(self.start_download)
+        
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.clicked.connect(self.cancel_download)
+        
+        self.open_folder_btn = QPushButton("打开文件夹")
+        self.open_folder_btn.clicked.connect(self.open_download_folder)
+        self.open_folder_btn.setEnabled(False)
+        
+        btn_layout.addWidget(self.cancel_btn)
+        btn_layout.addWidget(self.open_folder_btn)
+        btn_layout.addWidget(self.start_btn)
+        main_layout.addLayout(btn_layout)
 
-    def on_folder_combo_changed(self):
-        self.new_folder_input.setVisible(self.folder_combo.currentData() == "NEW")
+        # 下载线程
+        self.downloader = None
 
-    def get_data(self):
-        mode = "playlist" if self.playlist_radio.isChecked() else "single"
-        folder = self.folder_combo.currentData()
+    def browse_path(self):
+        path = QFileDialog.getExistingDirectory(self, "选择保存目录", self.path_input.text())
+        if path:
+            self.path_input.setText(path)
 
-        if folder == "NEW":
-            folder = self.new_folder_input.text().strip()
+    def start_download(self):
+        url = self.url_input.text().strip()
+        path = self.path_input.text().strip()
+        
+        if not url:
+            QMessageBox.warning(self, "错误", "请输入视频链接")
+            return
+            
+        if not path:
+            QMessageBox.warning(self, "错误", "请选择保存路径")
+            return
 
-        return self.url_input.text(), mode, folder, self.artist_input.text(), self.album_input.text()
+        # 获取下载模式
+        mode = 'single' if self.single_radio.isChecked() else 'playlist'
+        start = self.start_spin.value()
+        end = self.end_spin.value() if mode == 'playlist' else None
+        
+        # 禁用控件
+        self.start_btn.setEnabled(False)
+        self.url_input.setEnabled(False)
+        self.path_input.setEnabled(False)
+        self.browse_btn.setEnabled(False)
+        self.single_radio.setEnabled(False)
+        self.playlist_radio.setEnabled(False)
+        self.start_spin.setEnabled(False)
+        self.end_spin.setEnabled(False)
 
-class SyncLyricsDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("歌词同步")
-
-        # 获取屏幕尺寸和缩放管理器
-        screen = QApplication.primaryScreen()
-        screen_size = screen.size()
-        self.scale_manager = parent.scale_manager if hasattr(parent, 'scale_manager') else UIScaleManager()
-        self.theme_manager = parent.theme_manager if hasattr(parent, 'theme_manager') else ThemeManager()
-
-        # 设置对话框尺寸
-        dialog_width = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 500)
-        dialog_height = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 400)
-        self.resize(dialog_width, dialog_height)
-
-        theme = self.theme_manager.get_theme()
-        self.setStyleSheet(generate_stylesheet(theme, self.scale_manager, screen_size.width(), screen_size.height()))
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
-
-        layout.setContentsMargins(
-            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
-            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
-            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
-            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2
+        # 开始下载
+        self.downloader = BilibiliDownloader(
+            url=url,
+            path=path,
+            mode=mode,
+            start=start,
+            end=end
         )
+        
+        self.downloader.progress_signal.connect(self.update_progress)
+        self.downloader.finished_signal.connect(self.download_finished)
+        self.downloader.error_signal.connect(self.download_error)
+        self.downloader.start()
 
-        # 当前播放时间
-        time_group = QGroupBox("当前播放时间")
-        time_layout = QHBoxLayout(time_group)
-        self.time_input = QLineEdit("00:29")
-        self.play_button = QPushButton(f"{ICONS['play']} 播放")
-        self.play_button.setProperty("class", "outline")
-        time_layout.addWidget(self.time_input)
-        time_layout.addWidget(self.play_button)
-        layout.addWidget(time_group)
+    def update_progress(self, text, percent):
+        self.status_label.setText(text)
+        self.progress_bar.setValue(percent)
 
-        # 选择歌词行
-        lyric_group = QGroupBox("选择歌词行")
-        lyric_layout = QVBoxLayout(lyric_group)
-        self.lyric_combo = QComboBox()
-        self.lyric_combo.addItems([
-            "窗外的麻雀 在电线杆上多嘴",
-            "你说这一句 很有夏天的感觉",
-            "手中的铅笔 在纸上来来回回",
-            "我用几行字形容你是我的谁",
-            "秋刀鱼的滋味 猫跟你都想了解"
-        ])
-        lyric_layout.addWidget(self.lyric_combo)
-        layout.addWidget(lyric_group)
+    def download_finished(self, path, filename):
+        self.status_label.setText("下载完成!")
+        self.progress_bar.setValue(100)
+        self.open_folder_btn.setEnabled(True)
+        self._restore_ui()
+        QMessageBox.information(self, "完成", f"文件已保存到:\n{path}")
 
-        # 时间偏移
-        offset_group = QGroupBox("时间偏移")
-        offset_layout = QVBoxLayout(offset_group)
-        self.offset_slider = QSlider(Qt.Horizontal)
-        self.offset_slider.setRange(-10, 10)
-        self.offset_slider.setValue(0)
-        self.offset_label = QLabel("当前偏移: 0 秒")
-        offset_layout.addWidget(self.offset_slider)
-        offset_layout.addWidget(self.offset_label)
-        layout.addWidget(offset_group)
+    def download_error(self, error_msg):
+        self.status_label.setText(f"错误: {error_msg}")
+        self._restore_ui()
+        QMessageBox.critical(self, "下载失败", error_msg)
 
-        self.offset_slider.valueChanged.connect(self.on_offset_changed)
+    def cancel_download(self):
+        if self.downloader and self.downloader.isRunning():
+            self.downloader.cancel_download()
+            self.status_label.setText("正在取消...")
+            self.start_btn.setEnabled(False)
+        else:
+            self.close()
 
-        # 按钮
-        button_layout = QHBoxLayout()
-        self.cancel_button = QPushButton("取消")
-        self.cancel_button.setProperty("class", "outline")
-        self.cancel_button.clicked.connect(self.reject)
-        self.apply_button = QPushButton(f"{ICONS['check']} 应用同步")
-        self.apply_button.setProperty("class", "primary")
-        self.apply_button.clicked.connect(self.accept)
-        button_layout.addWidget(self.cancel_button)
-        button_layout.addWidget(self.apply_button)
-        layout.addLayout(button_layout)
+    def open_download_folder(self):
+        path = self.path_input.text()
+        if os.path.exists(path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
-    def on_offset_changed(self, value):
-        self.offset_label.setText(f"当前偏移: {value}秒")
+    def _restore_ui(self):
+        self.start_btn.setEnabled(True)
+        self.url_input.setEnabled(True)
+        self.path_input.setEnabled(True)
+        self.browse_btn.setEnabled(True)
+        self.single_radio.setEnabled(True)
+        self.playlist_radio.setEnabled(True)
+        self.start_spin.setEnabled(True)
+        self.end_spin.setEnabled(True)
