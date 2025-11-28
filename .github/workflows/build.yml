@@ -37,14 +37,6 @@ jobs:
           --hidden-import=urllib3 \
           --hidden-import=chardet \
           --hidden-import=idna \
-          --add-data="ui_scale_manager.py;." \
-          --add-data="theme_manager.py;." \
-          --add-data="style_generator.py;." \
-          --add-data="utils.py;." \
-          --add-data="dialogs.py;." \
-          --add-data="desktop_lyric.py;." \
-          --add-data="windows_effects.py;." \
-          --add-data="bilibili_downloader.py;." \
           --name "LightMusicPlayer" \
           main.py
 
