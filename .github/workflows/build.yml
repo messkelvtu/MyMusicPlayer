@@ -23,23 +23,23 @@ jobs:
         pip install pyinstaller PyQt5 PyQt5-sip yt-dlp requests qt-material
         
     - name: Build EXE
+      # 关键修复：将所有的 ` 替换为 ^ 来确保在GitHub Actions的Windows环境中正确换行
       run: |
-        pyinstaller --noconsole --onefile `
-          --collect-all PyQt5.QtMultimedia `
-          --collect-all yt_dlp `
-          --collect-all qt_material `
-          --hidden-import=PyQt5.QtCore `
-          --hidden-import=PyQt5.QtGui `
-          --hidden-import=PyQt5.QtWidgets `
-          --hidden-import=PyQt5.QtMultimedia `
-          --hidden-import=PyQt5.QtNetwork `
-          # 显式导入 requests 及其常见依赖，确保网络功能可用
-          --hidden-import=requests `
-          --hidden-import=urllib3 `
-          --hidden-import=chardet `
-          --hidden-import=idna `
-          --add-data=\".;.\" `
-          --name \"LightMusicPlayer\" `
+        pyinstaller --noconsole --onefile ^
+          --collect-all PyQt5.QtMultimedia ^
+          --collect-all yt_dlp ^
+          --collect-all qt_material ^
+          --hidden-import=PyQt5.QtCore ^
+          --hidden-import=PyQt5.QtGui ^
+          --hidden-import=PyQt5.QtWidgets ^
+          --hidden-import=PyQt5.QtMultimedia ^
+          --hidden-import=PyQt5.QtNetwork ^
+          --hidden-import=requests ^
+          --hidden-import=urllib3 ^
+          --hidden-import=chardet ^
+          --hidden-import=idna ^
+          --add-data=\".;.\" ^
+          --name \"LightMusicPlayer\" ^
           main.py
           
     - name: Verify EXE
