@@ -24,20 +24,20 @@ jobs:
 
     - name: Build EXE
       run: |
-        pyinstaller --noconsole --onefile \
-          --collect-all PyQt5.QtMultimedia \
-          --collect-all yt_dlp \
-          --collect-all qt_material \
-          --hidden-import=PyQt5.QtCore \
-          --hidden-import=PyQt5.QtGui \
-          --hidden-import=PyQt5.QtWidgets \
-          --hidden-import=PyQt5.QtMultimedia \
-          --hidden-import=PyQt5.QtNetwork \
-          --hidden-import=requests \
-          --hidden-import=urllib3 \
-          --hidden-import=chardet \
-          --hidden-import=idna \
-          --name "LightMusicPlayer" \
+        pyinstaller --noconsole --onefile `
+          --collect-all PyQt5.QtMultimedia `
+          --collect-all yt_dlp `
+          --collect-all qt_material `
+          --hidden-import=PyQt5.QtCore `
+          --hidden-import=PyQt5.QtGui `
+          --hidden-import=PyQt5.QtWidgets `
+          --hidden-import=PyQt5.QtMultimedia `
+          --hidden-import=PyQt5.QtNetwork `
+          --hidden-import=requests `
+          --hidden-import=urllib3 `
+          --hidden-import=chardet `
+          --hidden-import=idna `
+          --name "LightMusicPlayer" `
           main.py
 
     - name: Verify EXE
