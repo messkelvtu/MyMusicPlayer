@@ -1,0 +1,5 @@
+PyQt5>=5.15.0
+PyQt5-sip
+qt-material
+yt-dlp
+requests
