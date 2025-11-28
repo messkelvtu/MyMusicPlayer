@@ -20,7 +20,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller PyQt5 PyQt5-sip vt-dlp requests qt-material
+        pip install pyinstaller PyQt5 PyQt5-sip yt-dlp requests qt-material
 
     - name: Build EXE
       run: |
