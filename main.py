@@ -24,23 +24,1366 @@ from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QCoreApplication, QTimer
 from PyQt5.QtGui import QFont, QColor, QPalette, QPainter, QIcon, QPixmap, QCursor, QFontDatabase
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
-# 导入自定义模块
-from ui_scale_manager import UIScaleManager
-from theme_manager import ThemeManager
-from style_generator import generate_stylesheet
-from utils import sanitize_filename, ms_to_str, LyricListSearchWorker, LyricDownloader, ICONS
-from dialogs import LyricSearchDialog, BatchInfoDialog, DownloadDialog, SyncLyricsDialog
-from desktop_lyric import DesktopLyricWindow
-from windows_effects import enable_acrylic
-from bilibili_downloader import BilibiliDownloader
-
 # --- 核心配置 ---
 os.environ["QT_MULTIMEDIA_PREFERRED_PLUGINS"] = "windowsmediafoundation"
+
+try:
+    import yt_dlp
+except ImportError:
+    yt_dlp = None
 
 CONFIG_FILE = "config.json"
 METADATA_FILE = "metadata.json"
 HISTORY_FILE = "history.json"
 OFFSET_FILE = "offsets.json"
+
+# --- Windows 毛玻璃效果 ---
+from ctypes import windll, c_int, byref, sizeof, Structure, POINTER
+
+class ACCENT_POLICY(Structure):
+    _fields_ = [("AccentState", c_int), 
+                ("AccentFlags", c_int), 
+                ("GradientColor", c_int), 
+                ("AnimationId", c_int)]
+
+class WINDOWCOMPOSITIONATTRIBDATA(Structure):
+    _fields_ = [("Attribute", c_int), 
+                ("Data", POINTER(ACCENT_POLICY)), 
+                ("SizeOfData", c_int)]
+
+def enable_acrylic(hwnd):
+    try:
+        policy = ACCENT_POLICY()
+        policy.AccentState = 4
+        policy.GradientColor = 0xCCF1F8E9  # 自然清新主题的背景色
+        data = WINDOWCOMPOSITIONATTRIBDATA()
+        data.Attribute = 19
+        data.Data = byref(policy)
+        data.SizeOfData = sizeof(policy)
+        windll.user32.SetWindowCompositionAttribute(int(hwnd), byref(data))
+    except:
+        pass
+
+# --- 屏幕适配系统 ---
+class UIScaleManager:
+    def __init__(self):
+        # 基准分辨率 (1920x1080)
+        self.base_width = 1920
+        self.base_height = 1080
+        self.base_font_size = 14
+        self.base_icon_size = 24
+        self.base_padding = 10
+        self.base_margin = 8
+
+    def get_scale_factor(self, screen_width, screen_height):
+        # 使用对角线作为缩放基准
+        base_diag = (self.base_width ** 2 + self.base_height ** 2) ** 0.5
+        current_diag = (screen_width ** 2 + screen_height ** 2) ** 0.5
+        scale_factor = current_diag / base_diag
+        # 限制缩放范围
+        return max(0.8, min(scale_factor, 1.5))
+
+    def get_scaled_font_size(self, screen_width, screen_height):
+        scale_factor = self.get_scale_factor(screen_width, screen_height)
+        return int(self.base_font_size * scale_factor)
+
+    def get_scaled_icon_size(self, screen_width, screen_height):
+        scale_factor = self.get_scale_factor(screen_width, screen_height)
+        return int(self.base_icon_size * scale_factor)
+
+    def get_scaled_padding(self, screen_width, screen_height, base_padding=None):
+        if base_padding is None:
+            base_padding = self.base_padding
+        scale_factor = self.get_scale_factor(screen_width, screen_height)
+        return int(base_padding * scale_factor)
+
+    def get_scaled_margin(self, screen_width, screen_height, base_margin=None):
+        if base_margin is None:
+            base_margin = self.base_margin
+        scale_factor = self.get_scale_factor(screen_width, screen_height)
+        return int(base_margin * scale_factor)
+
+    def get_scaled_size(self, screen_width, screen_height, base_size):
+        scale_factor = self.get_scale_factor(screen_width, screen_height)
+        return int(base_size * scale_factor)
+
+# --- 主题系统 ---
+class ThemeManager:
+    def __init__(self):
+        self.themes = {
+            'light': {
+                'primary': '#4CAF50',
+                'primary-light': '#81C784',
+                'primary-dark': '#388E3C',
+                'secondary': '#88C34A',
+                'background': '#F1F8E9',
+                'surface': '#FFFFFF',
+                'card': '#FFFFFF',
+                'error': '#E94560',
+                'text_primary': '#185E20',
+                'text_secondary': '#4CAF50',
+                'text_tertiary': '#81C784',
+                'text_disabled': '#A0AEC0',
+                'border': '#C8E6C9',
+                'hover': 'rgba(76, 175, 80, 0.08)',
+                'selected': 'rgba(76, 175, 80, 0.15)',
+                'shadow': 'rgba(0, 0, 0, 0.1)'
+            }
+        }
+        self.current_theme = 'light'
+
+    def get_theme(self):
+        return self.themes[self.current_theme]
+
+    def switch_theme(self, theme_name):
+        if theme_name in self.themes:
+            self.current_theme = theme_name
+            return True
+        return False
+
+# --- 样式表生成器 ---
+def generate_stylesheet(theme, scale_manager=None, screen_width=1920, screen_height=1080):
+    if scale_manager is None:
+        scale_manager = UIScaleManager()
+
+    # 获取缩放后的尺寸
+    font_size = scale_manager.get_scaled_font_size(screen_width, screen_height)
+    padding = scale_manager.get_scaled_padding(screen_width, screen_height)
+    margin = scale_manager.get_scaled_margin(screen_width, screen_height)
+    icon_size = scale_manager.get_scaled_icon_size(screen_width, screen_height)
+
+    button_height = scale_manager.get_scaled_size(screen_width, screen_height, 40)
+    input_height = scale_manager.get_scaled_size(screen_width, screen_height, 44)
+    table_row_height = scale_manager.get_scaled_size(screen_width, screen_height, 50)
+
+    return f"""
+/* 全局样式 */
+QMainWindow {{ 
+    background: {theme['background']};
+    color: {theme['text_primary']};
+}} 
+
+QWidget {{ 
+    font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    color: {theme['text_primary']};
+    font-size: {font_size}px;
+}}
+
+/* 侧边栏 */
+QFrame#Sidebar {{ 
+    background-color: {theme['surface']};
+    border-right: 1px solid {theme['border']};
+}} 
+
+QLabel#Logo {{ 
+    font-size: {font_size + 10}px;
+    font-weight: 900;
+    color: {theme['primary']};
+    padding: {padding * 3}px {padding * 2}px;
+    letter-spacing: 1px;
+    border-bottom: 1px solid {theme['border']};
+}} 
+
+QLabel#SectionTitle {{ 
+    font-size: {font_size - 2}px;
+    color: {theme['text_secondary']};
+    padding: {padding * 2}px {padding * 2.5}px {padding}px {padding * 2.5}px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}}
+
+/* 导航按钮 - 边框强调方案 */
+QPushButton.NavBtn {{
+    background: transparent;
+    border: none;
+    text-align: left;
+    padding: {padding}px {padding * 2.5}px;
+    font-size: {font_size}px;
+    color: {theme['text_secondary']};
+    border-radius: 8px;
+    margin: 2px {margin * 1.5}px;
+    border-left: 3px solid transparent;
+    min-height: {button_height}px;
+}}
+
+QPushButton.NavBtn:hover {{
+    background-color: {theme['hover']};
+    color: {theme['primary']};
+    border-left: 3px solid {theme['primary']};
+}}
+
+QPushButton.NavBtn:checked {{
+    background: {theme['selected']};
+    color: {theme['primary']};
+    font-weight: 600;
+    border-left: 3px solid {theme['primary']};
+}}
+
+/* 下载按钮 - 渐变方案 */
+QPushButton#DownloadBtn {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {theme['primary']}, stop:1 {theme['primary-light']});
+    color: white;
+    font-weight: bold;
+    border-radius: 20px;
+    text-align: center;
+    margin: {margin * 2}px {margin * 2.5}px;
+    padding: {padding}px;
+    border: none;
+    font-size: {font_size}px;
+    min-height: {button_height}px;
+}}
+
+QPushButton#DownloadBtn:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {theme['primary-dark']}, stop:1 {theme['primary']});
+}}
+
+/* 工具按钮 - 边框强调方案 */
+QPushButton.ToolBtn {{
+    background: transparent;
+    border: none;
+    text-align: left;
+    padding: {padding}px {padding * 2.5}px;
+    font-size: {font_size}px;
+    color: {theme['text_secondary']};
+    border-radius: 8px;
+    margin: 2px {margin * 1.5}px;
+    border-left: 3px solid transparent;
+    min-height: {button_height}px;
+}}
+
+QPushButton.ToolBtn:hover {{
+    background: {theme['hover']};
+    color: {theme['primary']};
+    border-left: 3px solid {theme['primary']};
+}}
+
+/* 搜索框 */
+QLineEdit#SearchBox {{
+    background-color: {theme['background']};
+    border: 1px solid {theme['border']};
+    border-radius: 20px;
+    color: {theme['text_primary']};
+    padding: {padding}px {padding * 2}px;
+    font-size: {font_size}px;
+    min-height: {input_height}px;
+}}
+
+QLineEdit#SearchBox:focus {{
+    background-color: white;
+    border: 1px solid {theme['primary']};
+}}
+
+/* 表格样式 */
+QHeaderView::section {{ 
+    background-color: {theme['background']};
+    border: none;
+    border-bottom: 1px solid {theme['border']};
+    padding: {padding}px;
+    font-weight: bold;
+    color: {theme['text_secondary']};
+    font-size: {font_size}px;
+    min-height: {table_row_height}px; 
+}}
+
+QTableWidget {{ 
+    background-color: transparent;
+    border: none;
+    outline: none;
+    gridline-color: transparent;
+    selection-background-color: transparent;
+    border: 1px solid {theme['border']};
+    border-radius: 12px;
+    font-size: {font_size}px; 
+}}
+
+QTableWidget::item {{ 
+    padding: {padding}px;
+    border-bottom: 1px solid {theme['border']};
+    color: {theme['text_primary']};
+    min-height: {table_row_height}px; 
+}}
+
+QTableWidget::item:hover {{ 
+    background-color: {theme['hover']};
+}}
+
+QTableWidget::item:selected {{ 
+    background-color: {theme['selected']};
+    color: {theme['primary']};
+    border-radius: 6px; 
+}}
+
+/* 歌词页面 */
+QWidget#LyricsPage {{ 
+    background-color: {theme['background']};
+}}
+
+QListWidget#BigLyric {{ 
+    background: transparent; 
+    border: none; 
+    outline: none; 
+    font-size: {font_size + 10}px; 
+    color: {theme['text_secondary']}; 
+    font-weight: 600;
+}}
+
+QListWidget#BigLyric::item {{ 
+    padding: {padding * 2}px; 
+    text-align: center; 
+    min-height: {table_row_height + 20}px;
+}}
+
+QListWidget#BigLyric::item:selected {{ 
+    color: {theme['primary']}; 
+    font-size: {font_size + 18}px; 
+    font-weight: bold;
+}}
+
+/* 右侧面板 */
+QFrame#RightPanel {{ 
+    background-color: {theme['surface']}; 
+    border-left: 1px solid {theme['border']};
+}}
+
+QListWidget#LyricPanel {{ 
+    background: transparent; 
+    border: none; 
+    outline: none; 
+    font-size: {font_size}px; 
+    color: {theme['text_secondary']}; 
+    border: 1px solid {theme['border']}; 
+    border-radius: 12px;
+}}
+
+QListWidget#LyricPanel::item {{ 
+    padding: {padding}px 0; 
+    text-align: center; 
+    min-height: {table_row_height - 10}px;
+}}
+
+QListWidget#LyricPanel::item:selected {{ 
+    color: {theme['primary']}; 
+    font-size: {font_size + 2}px; 
+    font-weight: bold; 
+    background: transparent; 
+}}
+
+/* 播放控制栏 */
+QFrame#PlayerBar {{ 
+    background-color: {theme['surface']}; 
+    border-top: 1px solid {theme['border']};
+}}
+
+/* 播放按钮 - 渐变方案 */
+QPushButton#PlayBtn {{ 
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['primary']}, stop:1 {theme['primary-light']});
+    color: white;
+    border: none;
+    border-radius: 25px;
+    font-size: {font_size + 6}px;
+    min-width: {icon_size + 32}px;
+    min-height: {icon_size + 32}px;
+}}
+
+QPushButton#PlayBtn:hover {{ 
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['primary-dark']}, stop:1 {theme['primary']});
+}}
+
+/* 控制按钮 - 边框强调方案 */
+QPushButton.CtrlBtn {{ 
+    background: transparent;
+    border: 1px solid transparent;
+    font-size: {font_size + 4}px;
+    color: {theme['text_secondary']};
+    min-width: {icon_size + 16}px;
+    min-height: {icon_size + 16}px;
+    border-radius: 6px;
+}}
+
+QPushButton.CtrlBtn:hover {{ 
+    color: {theme['primary']};
+    background: {theme['hover']};
+}}
+
+/* 偏移按钮 - 边框强调方案 */
+QPushButton.OffsetBtn {{
+    background: transparent;
+    border: 1px solid {theme['border']};
+    color: {theme['text_secondary']};
+    padding: {padding}px {padding * 2}px;
+    border-radius: 8px;
+    font-size: {font_size - 1}px;
+    min-height: {button_height - 5}px;
+}}
+
+QPushButton.OffsetBtn:hover {{
+    border: 1px solid {theme['primary']};
+    color: {theme['primary']};
+    background: {theme['hover']};
+}}
+
+/* 进度条 */
+QSlider::groove:horizontal {{
+    height: {padding / 2}px;
+    background: {theme['border']};
+    border-radius: 3px;
+}}
+
+QSlider::handle:horizontal {{
+    background: {theme['primary']};
+    width: {icon_size - 10}px;
+    height: {icon_size - 10}px;
+    margin: {padding / 2}px 0;
+    border-radius: {icon_size / 2 - 5}px;
+}}
+
+QSlider::sub-page:horizontal {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {theme['primary']}, stop:1 {theme['primary-light']});
+    border-radius: 3px;
+}}
+
+/* 滚动条 */
+QScrollBar:vertical {{
+    border: none;
+    background: {theme['background']};
+    width: {padding}px;
+    margin: 0;
+    border-radius: 4px;
+}}
+
+QScrollBar::handle:vertical {{
+    background: {theme['border']};
+    min-height: {icon_size}px;
+    border-radius: 4px;
+}}
+
+QScrollBar::handle:vertical:hover {{
+    background: {theme['text_tertiary']};
+}}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0px;
+}}
+
+/* 歌单列表 */
+QListWidget#CollectionList {{
+    background: transparent;
+    border: none;
+    font-size: {font_size}px;
+    color: {theme['text_secondary']};
+    outline: none;
+}}
+
+QListWidget#CollectionList::item {{
+    padding: {padding}px {padding * 1.5}px;
+    border-left: 2px solid transparent;
+    margin: 0 {margin}px;
+    border-radius: 8px;
+    min-height: {table_row_height - 15}px;
+}}
+
+QListWidget#CollectionList::item:hover {{
+    background: {theme['hover']};
+    color: {theme['primary']};
+    border-left: 2px solid {theme['primary']};
+}}
+
+QListWidget#CollectionList::item:selected {{
+    background: {theme['selected']};
+    color: {theme['primary']};
+    font-weight: 600;
+}}
+
+/* 操作按钮 */
+QPushButton.ActionBtn {{
+    background: transparent;
+    border: 1px solid {theme['border']};
+    color: {theme['text_secondary']};
+    padding: {padding}px {padding * 2}px;
+    border-radius: 8px;
+    font-size: {font_size - 1}px;
+    min-height: {button_height - 5}px;
+}}
+
+QPushButton.ActionBtn:hover {{
+    border-color: {theme['primary']};
+    color: {theme['primary']};
+    background: {theme['hover']};
+}}
+
+/* 歌词控制按钮 */
+QPushButton.LyricControlBtn {{
+    background: transparent;
+    border: 1px solid {theme['border']};
+    color: {theme['text_secondary']};
+    padding: {padding - 2}px {padding * 1.5}px;
+    border-radius: 8px;
+    font-size: {font_size - 2}px;
+    min-height: {button_height - 10}px;
+}}
+
+QPushButton.LyricControlBtn:hover {{
+    border-color: {theme['primary']};
+    color: {theme['primary']};
+    background: {theme['hover']};
+}}
+
+/* 歌曲操作按钮 */
+QPushButton.SongActionBtn {{
+    background: transparent;
+    border: none;
+    color: {theme['text_secondary']};
+    padding: {padding - 2}px;
+    border-radius: 4px;
+    font-size: {font_size}px;
+    min-width: {icon_size}px;
+    min-height: {icon_size}px;
+}}
+
+QPushButton.SongActionBtn:hover {{
+    color: {theme['primary']};
+    background: {theme['hover']};
+}}
+
+/* 对话框样式 */
+QDialog {{
+    background: {theme['surface']};
+    color: {theme['text_primary']};
+    border: 1px solid {theme['border']};
+    border-radius: 16px;
+    font-size: {font_size}px;
+}}
+
+QDialog QLabel {{
+    color: {theme['text_primary']};
+    font-size: {font_size}px;
+    padding: {padding / 2}px;
+}}
+
+QDialog QLineEdit {{
+    background: {theme['background']};
+    border: 1px solid {theme['border']};
+    border-radius: 8px;
+    color: {theme['text_primary']};
+    padding: {padding}px {padding * 1.5}px;
+    font-size: {font_size}px;
+    min-height: {input_height}px;
+    selection-background-color: {theme['selected']};
+}}
+
+QDialog QLineEdit:focus {{
+    border: 1px solid {theme['primary']};
+    background: white;
+}}
+
+QDialog QCheckBox {{
+    color: {theme['text_primary']};
+    font-size: {font_size}px;
+    spacing: {padding}px;
+    min-height: {icon_size}px;
+}}
+
+QDialog QCheckBox::indicator {{
+    width: {icon_size - 6}px;
+    height: {icon_size - 6}px;
+    border-radius: 4px;
+    border: 1px solid {theme['border']};
+}}
+
+QDialog QCheckBox::indicator:checked {{
+    background: {theme['primary']};
+    border: 1px solid {theme['primary']};
+}}
+
+QDialog QPushButton {{
+    padding: {padding}px {padding * 2}px;
+    border-radius: 8px;
+    font-size: {font_size}px;
+    font-weight: 600;
+    min-height: {button_height}px;
+}}
+
+QDialog QPushButton[class="primary"] {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['primary']}, stop:1 {theme['primary-light']});
+    color: white;
+    border: none;
+}}
+
+QDialog QPushButton[class="primary"]:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {theme['primary-dark']}, stop:1 {theme['primary']});
+}}
+
+QDialog QPushButton[class="outline"] {{
+    background: transparent;
+    color: {theme['primary']};
+    border: 1px solid {theme['primary']};
+}}
+
+QDialog QPushButton[class="outline"]:hover {{ 
+    background: {theme['hover']}; 
+}}
+
+QDialog QTabWidget::pane {{ 
+    border: 1px solid {theme['border']}; 
+    border-radius: 8px; 
+}}
+
+QDialog QTabBar::tab {{ 
+    background: transparent; 
+    padding: {padding}px {padding * 2}px; 
+    border: none; 
+    color: {theme['text_secondary']}; 
+    border-bottom: 2px solid transparent; 
+    min-height: {button_height}px; 
+}}
+
+QDialog QTabBar::tab:selected {{ 
+    color: {theme['primary']}; 
+    border-bottom: 2px solid {theme['primary']}; 
+}}
+
+QDialog QComboBox {{ 
+    background: {theme['background']}; 
+    border: 1px solid {theme['border']}; 
+    border-radius: 8px; 
+    color: {theme['text_primary']}; 
+    padding: {padding}px {padding * 1.5}px; 
+    font-size: {font_size}px; 
+    min-height: {input_height}px; 
+}}
+
+QDialog QComboBox:focus {{ 
+    border: 1px solid {theme['primary']}; 
+}}
+
+QDialog QComboBox::drop-down {{ 
+    border: none; 
+    width: {icon_size}px; 
+}}
+
+QDialog QComboBox::down-arrow {{ 
+    image: none;
+    border-left: 1px solid {theme['border']};
+    padding: 0 {padding}px;
+}}
+
+QDialog QSpinBox {{
+    background: {theme['background']};
+    border: 1px solid {theme['border']};
+    border-radius: 8px;
+    color: {theme['text_primary']};
+    padding: {padding}px {padding * 1.5}px;
+    font-size: {font_size}px;
+    min-height: {input_height}px;
+}}
+
+QDialog QSpinBox:focus {{
+    border: 1px solid {theme['primary']};
+}}
+
+/* 分割器样式 */
+QSplitter::handle {{
+    background: rgba(76, 175, 80, 0.1);
+    width: {padding / 2}px;
+    height: {padding / 2}px;
+}}
+
+/* 分组框样式 */
+QGroupBox {{
+    font-weight: bold;
+    border: 1px solid {theme['border']};
+    border-radius: 8px;
+    margin-top: {padding * 1.5}px;
+    padding-top: {padding * 1.5}px;
+    font-size: {font_size}px;
+    color: {theme['text_primary']};
+}}
+
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    left: {padding}px;
+    padding: 0 {padding}px;
+    color: {theme['text_primary']};
+}}
+
+/* 进度条样式 */
+QProgressBar {{  
+    border: 1px solid {theme['border']};  
+    border-radius: 4px;  
+    background: {theme['background']};  
+    text-align: center;  
+    color: {theme['text_primary']};  
+    font-size: {font_size - 1}px;  
+}}
+
+QProgressBar::chunk {{  
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {theme['primary']}, stop:1 {theme['primary-light']});  
+    border-radius: 3px;  
+}}
+
+/* 菜单样式 */  
+QMenu {{  
+    background: {theme['surface']};  
+    color: {theme['text_primary']};  
+    border: 1px solid {theme['border']};  
+    border-radius: 8px;  
+    padding: {padding / 2}px;  
+    font-size: {font_size}px;  
+}}
+
+QMenu::item {{  
+    padding: {padding}px {padding * 1.5}px;  
+    border-radius: 4px;  
+    min-height: {button_height - 5}px;  
+}}
+
+QMenu::item:selected {{  
+    background: {theme['selected']};  
+    color: {theme['primary']};  
+}}
+
+QMenu::separator {{  
+    height: 1px;  
+    background: {theme['border']};  
+    margin: {padding / 2}px {padding}px;  
+}}
+"""
+
+# -- 辅助函数 --
+def sanitize_filename(name):
+    return re.sub(r'[\\/*?:"<>|]', "", name).strip()
+
+def ms_to_str(ms):
+    if not ms:
+        return "00:00"
+    s = ms // 1000
+    return f"{s//60:02}:{s%60:02}"
+
+# --- 功能线程 ---
+class LyricListSearchWorker(QThread):
+    search_finished = pyqtSignal(list)
+
+    def __init__(self, keyword):
+        super().__init__()
+        self.keyword = keyword
+
+    def run(self):
+        try:
+            url = "http://music.163.com/api/search/get/web?csrf_token="
+            headers = {"User-Agent": 'Mozilla/5.0'}
+            data = urllib.parse.urlencode({
+                's': self.keyword,
+                'type': 1,
+                'offset': 0,
+                'total': 'true',
+                'limit': 15
+            }).encode('utf-8')
+
+            req = urllib.request.Request(url, data=data, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as f:
+                res = json.loads(f.read().decode('utf-8'))
+
+            results = [] 
+            if res.get('result') and res['result'].get('songs'):
+                for s in res['result']['songs']:
+                    artist = s['artists'][0]['name'] if s['artists'] else "未知"
+                    duration = s.get('duration', 0)
+                    results.append({
+                        'name': s['name'],
+                        'artist': artist,
+                        'id': s['id'],
+                        'duration': duration,
+                        'duration_str': ms_to_str(duration)
+                    })
+            self.search_finished.emit(results)
+        except Exception as e:
+            print(f"歌词搜索错误: {e}")
+            self.search_finished.emit([])
+
+class LyricDownloader(QThread):
+    finished_signal = pyqtSignal(str)
+
+    def __init__(self, sid, path):
+        super().__init__()
+        self.sid = sid
+        self.path = path
+
+    def run(self):
+        try:
+            url = f"http://music.163.com/api/song/lyric?os=pc&id={self.sid}&lv=-1&kv=-1"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=10) as f:
+                res = json.loads(f.read().decode('utf-8'))
+
+            if 'lrc' in res:
+                lrc = res['lrc']['lyric']
+                with open(self.path, 'w', encoding='utf-8') as f:
+                    f.write(lrc)
+                self.finished_signal.emit(lrc)
+        except Exception as e:
+            print(f"歌词下载错误: {e}")
+
+class BilibiliDownloader(QThread):
+    progress_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(str, str)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, url, path, mode, sp):
+        super().__init__()
+        self.u = url
+        self.p = path
+        self.m = mode
+        self.sp = sp
+
+    def run(self):
+        if not yt_dlp:
+            self.error_signal.emit("未安装 yt-dlp，无法下载")
+            return
+
+        if not os.path.exists(self.p):
+            try:
+                os.makedirs(self.p)
+            except Exception as e:
+                self.error_signal.emit(f"无法创建目录: {e}")
+                return
+
+        def progress_hook(d):
+            if d['status'] == 'downloading':
+                self.progress_signal.emit(f"    {d.get('_percent_str', '')} {os.path.basename(d.get('filename', ''))[:20]}...")
+
+        opts = {
+            'format': 'bestaudio[ext=m4a]/best[ext=mp4]',
+            'outtmpl': os.path.join(self.p, '%(title)s.%(ext)s'),
+            'overwrites': True,
+            'noplaylist': self.m == 'single',
+            'playlist_items': str(self.sp) if self.m == 'single' else f"{self.sp}-",
+            'progress_hooks': [progress_hook],
+            'quiet': True,
+            'nocheckcertificate': True,
+            'restrictfilenames': False
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(opts) as y:
+                y.download([self.u])
+            self.finished_signal.emit(self.p, "")
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+# 图标映射
+ICONS = {
+    "music": "♫",
+    "download": "↓",
+    "disc": "●",
+    "history": "🕒",
+    "heart": "♥",
+    "fire": "🔥",
+    "star": "★",
+    "sync": "🔄",
+    "folder_plus": "📁+",
+    "truck": "🚚",
+    "folder_open": "📁",
+    "microphone": "🎤",
+    "search": "🔍",
+    "edit": "✏️",
+    "random": "🔀",
+    "play": "▶",
+    "pause": "⏸",
+    "ellipsis": "⋯",
+    "step_backward": "⏮",
+    "step_forward": "⏭",
+    "retweet": "🔁",
+    "volume": "🔊",
+    "sliders": "🎚",
+    "youtube": "📺",
+    "save": "💾",
+    "check": "✓",
+    "text_height": "A",
+    "palette": "🎨",
+    "font": "A",
+    "align_center": "☰",
+    "chevron_down": "▼",
+    "close": "✕",
+    "info": "ℹ",
+    "warning": "⚠",
+    "error": "✗"
+}
+
+# -- 对话框类 --  
+class LyricSearchDialog(QDialog):  
+    def __init__(self, song_name, duration_ms=0, parent=None):  
+        super().__init__(parent)  
+        self.setWindowTitle("搜索歌词")  
+
+        # 获取屏幕尺寸和缩放管理器  
+        screen = QApplication.primaryScreen()  
+        screen_size = screen.size()  
+        self.scale_manager = parent.scale_manager if hasattr(parent, 'scale_manager') else UIScaleManager()  
+        self.theme_manager = parent.theme_manager if hasattr(parent, 'theme_manager') else ThemeManager()
+
+        # 设置对话框尺寸
+        dialog_width = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 700)
+        dialog_height = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 500)
+        self.resize(dialog_width, dialog_height)
+
+        self.result_id = None
+        self.duration_ms = duration_ms
+
+        theme = self.theme_manager.get_theme()
+        self.setStyleSheet(generate_stylesheet(theme, self.scale_manager, screen_size.width(), screen_size.height()))
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
+
+        layout.setContentsMargins(
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2
+        )
+
+        # 搜索框
+        search_layout = QHBoxLayout()
+        self.search_input = QLineEdit(song_name)
+        self.search_input.setPlaceholderText("输入歌曲名称")
+        self.search_button = QPushButton("搜索")
+        self.search_button.setProperty("class", "primary")
+        self.search_button.clicked.connect(self.search_lyrics)
+        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.search_button)
+        layout.addLayout(search_layout)
+
+        # 结果表格
+        self.result_table = QTableWidget()
+        self.result_table.setColumnCount(4)
+        self.result_table.setHorizontalHeaderLabels(['歌名', "歌手", "时长", "ID"])
+        self.result_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.result_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.result_table.itemDoubleClicked.connect(self.on_item_double_click)
+        layout.addWidget(self.result_table)
+
+        # 状态标签
+        self.status_label = QLabel("输入关键词...")
+        layout.addWidget(self.status_label)
+
+        # 绑定按钮
+        button_layout = QHBoxLayout()
+        self.bind_button = QPushButton("下载并绑定")
+        self.bind_button.setProperty("class", "primary")
+        self.bind_button.clicked.connect(self.confirm_bind)
+        self.cancel_button = QPushButton("取消")
+        self.cancel_button.setProperty("class", "outline")
+        self.cancel_button.clicked.connect(self.reject)
+        button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.bind_button)
+        layout.addLayout(button_layout)
+
+    def search_lyrics(self):
+        keyword = self.search_input.text()
+        self.result_table.setRowCount(0)
+        self.status_label.setText("搜索中...")
+
+        self.worker = LyricListSearchWorker(keyword)
+        self.worker.search_finished.connect(self.on_search_finished)
+        self.worker.start()
+
+    def on_search_finished(self, results):
+        self.status_label.setText(f"找到 {len(results)} 条")
+        self.result_table.setRowCount(len(results))
+
+        for i, result in enumerate(results):
+            self.result_table.setItem(i, 0, QTableWidgetItem(result['name']))
+            self.result_table.setItem(i, 1, QTableWidgetItem(result['artist']))
+
+            duration_item = QTableWidgetItem(result['duration_str'])
+            if abs(result['duration'] - self.duration_ms) < 3000 and self.duration_ms > 0:
+                duration_item.setForeground(QColor("#1ECD97"))
+            self.result_table.setItem(i, 2, duration_item)
+            self.result_table.setItem(i, 3, QTableWidgetItem(str(result['id'])))
+
+    def on_item_double_click(self, item):
+        self.result_id = self.result_table.item(item.row(), 3).text()
+        self.accept()
+
+    def confirm_bind(self):
+        row = self.result_table.currentRow()
+        if row >= 0:
+            self.result_id = self.result_table.item(row, 3).text()
+            self.accept()
+        else:
+            QMessageBox.warning(self, "提示", "请选择一首歌曲")
+
+class BatchInfoDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("编辑信息")
+
+        # 获取屏幕尺寸和缩放管理器
+        screen = QApplication.primaryScreen()
+        screen_size = screen.size()
+        self.scale_manager = parent.scale_manager if hasattr(parent, 'scale_manager') else UIScaleManager()
+        self.theme_manager = parent.theme_manager if hasattr(parent, 'theme_manager') else ThemeManager()
+
+        # 设置对话框尺寸
+        dialog_width = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 500)
+        dialog_height = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 400)
+        self.resize(dialog_width, dialog_height)
+
+        theme = self.theme_manager.get_theme()
+        self.setStyleSheet(generate_stylesheet(theme, self.scale_manager, screen_size.width(), screen_size.height()))
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
+
+        layout.setContentsMargins(
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2
+        )
+
+        # 歌曲标题
+        title_group = QGroupBox("歌曲信息")
+        title_layout = QVBoxLayout(title_group)
+
+        self.title_input = QLineEdit()
+        self.title_input.setPlaceholderText("歌曲标题")
+        title_layout.addWidget(self.title_input)
+
+        # 歌手
+        self.artist_input = QLineEdit()
+        self.artist_input.setPlaceholderText("歌手")
+        title_layout.addWidget(self.artist_input)
+
+        # 专辑
+        self.album_input = QLineEdit()
+        self.album_input.setPlaceholderText("专辑")
+        title_layout.addWidget(self.album_input)
+
+        # 年份
+        self.year_input = QLineEdit()
+        self.year_input.setPlaceholderText("年份")
+        title_layout.addWidget(self.year_input)
+
+        layout.addWidget(title_group)
+
+        # 按钮
+        button_layout = QHBoxLayout()
+        self.cancel_button = QPushButton("取消")
+        self.cancel_button.setProperty("class", "outline")
+        self.cancel_button.clicked.connect(self.reject)
+        self.save_button = QPushButton("保存更改")
+        self.save_button.setProperty("class", "primary")
+        self.save_button.clicked.connect(self.accept)
+        button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.save_button)
+        layout.addLayout(button_layout)
+
+    def get_data(self):
+        return (
+            self.title_input.text(),
+            self.artist_input.text(),
+            self.album_input.text(),
+            self.year_input.text()
+        )
+        
+    def set_data(self, title, artist, album, year):
+        self.title_input.setText(title)
+        self.artist_input.setText(artist)
+        self.album_input.setText(album)
+        self.year_input.setText(year)
+
+class DownloadDialog(QDialog):
+    def __init__(self, parent=None, current_p=1, collections=[]):
+        super().__init__(parent)
+        self.setWindowTitle("下载")
+
+        # 获取屏幕尺寸和缩放管理器
+        screen = QApplication.primaryScreen()
+        screen_size = screen.size()
+        self.scale_manager = parent.scale_manager if hasattr(parent, 'scale_manager') else UIScaleManager()
+        self.theme_manager = parent.theme_manager if hasattr(parent, 'theme_manager') else ThemeManager()
+
+        # 设置对话框尺寸
+        dialog_width = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 600)
+        dialog_height = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 500)
+        self.resize(dialog_width, dialog_height)
+
+        theme = self.theme_manager.get_theme()
+        self.setStyleSheet(generate_stylesheet(theme, self.scale_manager, screen_size.width(), screen_size.height()))
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
+
+        layout.setContentsMargins(
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2
+        )
+
+        # 视频链接
+        url_group = QGroupBox("视频链接")
+        url_layout = QVBoxLayout(url_group)
+        self.url_input = QLineEdit()
+        self.url_input.setPlaceholderText("请输入 B 站视频链接")
+        url_layout.addWidget(self.url_input)
+        layout.addWidget(url_group)
+
+        # 标签页
+        self.tab_widget = QTabWidget()
+
+        # 下载设置标签页
+        settings_tab = QWidget()
+        settings_layout = QVBoxLayout(settings_tab)
+        settings_layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
+
+        # 下载模式
+        mode_group = QGroupBox("下载模式")
+        mode_layout = QVBoxLayout(mode_group)
+        self.single_radio = QRadioButton("单曲下载")
+        self.playlist_radio = QRadioButton("合集下载")
+        self.single_radio.setChecked(True)
+        mode_layout.addWidget(self.single_radio)
+        mode_layout.addWidget(self.playlist_radio)
+        settings_layout.addWidget(mode_group)
+
+        # 保存位置
+        location_group = QGroupBox("保存位置")
+        location_layout = QVBoxLayout(location_group)
+        self.folder_combo = QComboBox()
+        self.folder_combo.addItem("根目录", "")
+        for collection in collections:
+            self.folder_combo.addItem(f"{ICONS['folder_open']} {collection}", collection)
+        self.folder_combo.addItem(f"{ICONS['folder_plus']} 新建...", "NEW")
+        location_layout.addWidget(self.folder_combo)
+
+        self.new_folder_input = QLineEdit()
+        self.new_folder_input.setPlaceholderText("文件夹名称")
+        self.new_folder_input.hide()
+        location_layout.addWidget(self.new_folder_input)
+
+        self.folder_combo.currentIndexChanged.connect(self.on_folder_combo_changed)
+        settings_layout.addWidget(location_group)
+
+        # 预设信息
+        preset_group = QGroupBox("预设信息")
+        preset_layout = QVBoxLayout(preset_group)
+        self.artist_input = QLineEdit()
+        self.artist_input.setPlaceholderText("预设歌手")
+        preset_layout.addWidget(self.artist_input)
+
+        self.album_input = QLineEdit()
+        self.album_input.setPlaceholderText("预设专辑")
+        preset_layout.addWidget(self.album_input)
+        settings_layout.addWidget(preset_group)
+
+        self.tab_widget.addTab(settings_tab, "下载设置")
+
+        # 高级选项标签页
+        advanced_tab = QWidget()
+        advanced_layout = QVBoxLayout(advanced_tab)
+        advanced_layout.addWidget(QLabel("高级选项内容..."))
+        self.tab_widget.addTab(advanced_tab, "高级选项")
+
+        layout.addWidget(self.tab_widget)
+
+        # 按钮
+        button_layout = QHBoxLayout()
+        self.cancel_button = QPushButton("取消")
+        self.cancel_button.setProperty("class", "outline")
+        self.cancel_button.clicked.connect(self.reject)
+        self.download_button = QPushButton(f"{ICONS['download']} 开始下载")
+        self.download_button.setProperty("class", "primary")
+        self.download_button.clicked.connect(self.accept)
+        button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.download_button)
+        layout.addLayout(button_layout)
+
+    def on_folder_combo_changed(self):
+        self.new_folder_input.setVisible(self.folder_combo.currentData() == "NEW")
+
+    def get_data(self):
+        mode = "playlist" if self.playlist_radio.isChecked() else "single"
+        folder = self.folder_combo.currentData()
+
+        if folder == "NEW":
+            folder = self.new_folder_input.text().strip()
+
+        return self.url_input.text(), mode, folder, self.artist_input.text(), self.album_input.text()
+
+class SyncLyricsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("歌词同步")
+
+        # 获取屏幕尺寸和缩放管理器
+        screen = QApplication.primaryScreen()
+        screen_size = screen.size()
+        self.scale_manager = parent.scale_manager if hasattr(parent, 'scale_manager') else UIScaleManager()
+        self.theme_manager = parent.theme_manager if hasattr(parent, 'theme_manager') else ThemeManager()
+
+        # 设置对话框尺寸
+        dialog_width = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 500)
+        dialog_height = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 400)
+        self.resize(dialog_width, dialog_height)
+
+        theme = self.theme_manager.get_theme()
+        self.setStyleSheet(generate_stylesheet(theme, self.scale_manager, screen_size.width(), screen_size.height()))
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(self.scale_manager.get_scaled_margin(screen_size.width(), screen_size.height()))
+
+        layout.setContentsMargins(
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2,
+            self.scale_manager.get_scaled_padding(screen_size.width(), screen_size.height()) * 2
+        )
+
+        # 当前播放时间
+        time_group = QGroupBox("当前播放时间")
+        time_layout = QHBoxLayout(time_group)
+        self.time_input = QLineEdit("00:29")
+        self.play_button = QPushButton(f"{ICONS['play']} 播放")
+        self.play_button.setProperty("class", "outline")
+        time_layout.addWidget(self.time_input)
+        time_layout.addWidget(self.play_button)
+        layout.addWidget(time_group)
+
+        # 选择歌词行
+        lyric_group = QGroupBox("选择歌词行")
+        lyric_layout = QVBoxLayout(lyric_group)
+        self.lyric_combo = QComboBox()
+        self.lyric_combo.addItems([
+            "窗外的麻雀 在电线杆上多嘴",
+            "你说这一句 很有夏天的感觉",
+            "手中的铅笔 在纸上来来回回",
+            "我用几行字形容你是我的谁",
+            "秋刀鱼的滋味 猫跟你都想了解"
+        ])
+        lyric_layout.addWidget(self.lyric_combo)
+        layout.addWidget(lyric_group)
+
+        # 时间偏移
+        offset_group = QGroupBox("时间偏移")
+        offset_layout = QVBoxLayout(offset_group)
+        self.offset_slider = QSlider(Qt.Horizontal)
+        self.offset_slider.setRange(-10, 10)
+        self.offset_slider.setValue(0)
+        self.offset_label = QLabel("当前偏移: 0 秒")
+        offset_layout.addWidget(self.offset_slider)
+        offset_layout.addWidget(self.offset_label)
+        layout.addWidget(offset_group)
+
+        self.offset_slider.valueChanged.connect(self.on_offset_changed)
+
+        # 按钮
+        button_layout = QHBoxLayout()
+        self.cancel_button = QPushButton("取消")
+        self.cancel_button.setProperty("class", "outline")
+        self.cancel_button.clicked.connect(self.reject)
+        self.apply_button = QPushButton(f"{ICONS['check']} 应用同步")
+        self.apply_button.setProperty("class", "primary")
+        self.apply_button.clicked.connect(self.accept)
+        button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.apply_button)
+        layout.addLayout(button_layout)
+
+    def on_offset_changed(self, value):
+        self.offset_label.setText(f"当前偏移: {value}秒")
+
+class DesktopLyricWindow(QWidget):
+    def __init__(self, scale_manager=None):
+        super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        # 获取屏幕尺寸和缩放管理器
+        screen = QApplication.primaryScreen()
+        screen_size = screen.size()
+        self.scale_manager = scale_manager if scale_manager else UIScaleManager()
+
+        # 设置窗口尺寸
+        window_width = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 1200)
+        window_height = self.scale_manager.get_scaled_size(screen_size.width(), screen_size.height(), 180)
+        self.resize(window_width, window_height)
+
+        self.color = QColor(76, 175, 80)  # 主题绿色
+        base_font_size = self.scale_manager.get_scaled_font_size(screen_size.width(), screen_size.height())
+
+        self.font = QFont("Segoe UI", base_font_size + 22, QFont.Bold)
+        self.locked = False
+
+        layout = QVBoxLayout(self)
+        self.labels = [QLabel("") for _ in range(3)]
+
+        for label in self.labels:
+            label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(label)
+
+        self.update_style()
+        self.move(100, 800)
+
+    def update_style(self):
+        shadow_color = QColor(0, 0, 0, 100)
+
+        for i, label in enumerate(self.labels):
+            effect = QGraphicsDropShadowEffect()
+            effect.setBlurRadius(12)
+            effect.setColor(shadow_color)
+            effect.setOffset(0, 0)
+            label.setGraphicsEffect(effect)
+
+            font = QFont(self.font)
+            if i == 1:  # 当前歌词
+                font_size = self.font.pointSize()
+            else:  # 上下歌词
+                font_size = int(self.font.pointSize() * 0.6)
+            font.setPointSize(font_size)
+
+            color = self.color.name() if i == 1 else f"rgba({self.color.red()},{self.color.green()},{self.color.blue()},100)"
+            label.setStyleSheet(f"color: {color}")
+            label.setFont(font)
+
+    def set_text(self, prev, current, next_):
+        self.labels[0].setText(prev)
+        self.labels[1].setText(current)
+        self.labels[2].setText(next_)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
+        elif event.button() == Qt.RightButton:
+            self.show_context_menu(event.globalPos())
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton and not self.locked:
+            self.move(event.globalPos() - self.drag_position)
+
+    def show_context_menu(self, position):
+        menu = QMenu()
+        menu.addAction("颜色", self.change_color)
+        menu.addAction("字体", self.change_font)
+        menu.addAction("锁定/解锁", self.toggle_lock)
+        menu.addAction("✗ 关闭", self.hide)
+        menu.exec_(position)
+
+    def change_color(self):
+        color = QColorDialog.getColor(self.color, self)
+        if color.isValid():
+            self.color = color
+            self.update_style()
+
+    def change_font(self):
+        font, ok = QFontDialog.getFont(self.font, self)
+        if ok:
+            self.font = font
+            self.update_style()
+
+    def toggle_lock(self):
+        self.locked = not self.locked
 
 # --- 主程序 ---
 class SodaPlayer(QMainWindow):
@@ -281,6 +1624,7 @@ class SodaPlayer(QMainWindow):
 
         random_play_button = QPushButton(f"{ICONS['random']} 随机播放")
         random_play_button.setProperty("class", "ActionBtn")
+        random_play_button.clicked.connect(lambda: self.play(random.randint(0, len(self.playlist)-1) if self.playlist else None))
 
         song_table_actions.addWidget(batch_edit_button)
         song_table_actions.addWidget(random_play_button)
