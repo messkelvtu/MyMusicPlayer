@@ -4,7 +4,6 @@ import re
 import json
 import shutil
 import random
-import urllib.request
 import urllib.parse
 from datetime import datetime
 from ctypes import windll, c_int, byref, sizeof, Structure, POINTER
@@ -15,7 +14,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView, 
                              QStackedWidget, QSplitter, QGraphicsDropShadowEffect, QMenu,
                              QMessageBox, QRadioButton, QComboBox, QGroupBox, QInputDialog)
-from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QTimer, QSize, QPoint
+from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QTimer, QSize, QPoint, QCoreApplication
 from PyQt5.QtGui import QFont, QColor, QCursor, QIcon
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
@@ -23,6 +22,7 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 SCALE = 1.25  # 全局缩放比例，解决125%缩放问题
 CONFIG_FILE = "config.json"
 HISTORY_FILE = "history.json"
+OFFSET_FILE = "lyric_offsets.json" 
 
 # 自然清新主题色
 THEME = {
@@ -119,6 +119,7 @@ class BilibiliDownloader(QThread):
 class LyricSearchWorker(QThread):
     """网易云歌词搜索线程"""
     search_finished = pyqtSignal(list)
+    search_error = pyqtSignal(str) 
 
     def __init__(self, keyword):
         super().__init__()
@@ -126,9 +127,19 @@ class LyricSearchWorker(QThread):
 
     def run(self):
         try:
-            import requests
+            import requests # 尝试导入 requests
+        except ImportError:
+            self.search_error.emit("依赖库缺失：请运行 'pip install requests' 安装。")
+            self.search_finished.emit([])
+            return
+
+        try:
+            # 使用更稳定的搜索接口，同时添加必要的 headers
             url = "http://music.163.com/api/search/get/web?csrf_token="
-            headers = {'User-Agent': 'Mozilla/5.0'}
+            headers = {
+                'User-Agent': 'Mozilla/5.0',
+                'Referer': 'http://music.163.com/'
+            }
             data = urllib.parse.urlencode({
                 's': self.keyword, 'type': 1, 'offset': 0, 'total': 'true', 'limit': 10
             }).encode('utf-8')
@@ -142,17 +153,19 @@ class LyricSearchWorker(QThread):
                     songs.append({
                         'name': s['name'],
                         'artist': artist,
-                        'id': s['id'],
+                        'id': s['id'], # 确保这里有ID
                         'dt': s.get('duration', 0)
                     })
             self.search_finished.emit(songs)
         except Exception as e:
-            print(f"Search Error: {e}")
+            # 捕获网络错误或API解析失败
+            self.search_error.emit(f"网络请求失败或API错误: {e}")
             self.search_finished.emit([])
 
 class LyricDownloadWorker(QThread):
     """歌词下载线程"""
     finished_signal = pyqtSignal(str)
+    error_signal = pyqtSignal(str)
 
     def __init__(self, song_id, save_path):
         super().__init__()
@@ -162,17 +175,26 @@ class LyricDownloadWorker(QThread):
     def run(self):
         try:
             import requests
+        except ImportError:
+            self.error_signal.emit("依赖库缺失：请运行 'pip install requests' 安装。")
+            self.finished_signal.emit("")
+            return
+
+        try:
             url = f"http://music.163.com/api/song/lyric?os=pc&id={self.sid}&lv=-1&kv=-1&tv=-1"
             res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5).json()
             
             lrc = res.get('lrc', {}).get('lyric', '')
             if lrc:
+                # 确保保存路径的目录存在
+                os.makedirs(os.path.dirname(self.path), exist_ok=True) 
                 with open(self.path, 'w', encoding='utf-8') as f:
                     f.write(lrc)
                 self.finished_signal.emit(lrc)
             else:
-                self.finished_signal.emit("")
-        except Exception:
+                self.finished_signal.emit("") # 返回空歌词
+        except Exception as e:
+            self.error_signal.emit(f"歌词下载失败: {e}")
             self.finished_signal.emit("")
 
 # ================= 自定义弹窗 =================
@@ -298,25 +320,45 @@ class LyricSearchDialog(ModernDialog):
 
     def do_search(self):
         kw = self.input.text()
-        if not kw: return
+        if not kw: 
+            self.status.setText("关键词不能为空。")
+            return
         self.status.setText("搜索中...")
         self.worker = LyricSearchWorker(kw)
         self.worker.search_finished.connect(self.show_results)
+        self.worker.search_error.connect(self.show_error)
         self.worker.start()
 
     def show_results(self, songs):
         self.list_widget.setRowCount(0)
-        self.status.setText(f"找到 {len(songs)} 个结果")
+        if songs:
+            self.status.setText(f"找到 {len(songs)} 个结果，双击选择。")
+        else:
+            self.status.setText("未找到相关歌词。")
+
         for i, s in enumerate(songs):
             self.list_widget.insertRow(i)
-            self.list_widget.setItem(i, 0, QTableWidgetItem(s['name']))
+            # 关键：将歌曲ID保存到第一个Item的UserRole中
+            item_name = QTableWidgetItem(s['name'])
+            # 歌曲ID是数字，直接保存到 UserRole
+            item_name.setData(Qt.UserRole, s['id']) 
+            
+            self.list_widget.setItem(i, 0, item_name)
             self.list_widget.setItem(i, 1, QTableWidgetItem(s['artist']))
             self.list_widget.setItem(i, 2, QTableWidgetItem(ms_to_str(s['dt'])))
-            self.list_widget.item(i, 0).setData(Qt.UserRole, s['id'])
+
+    def show_error(self, err_msg):
+        self.status.setText(f"搜索发生错误: {err_msg}")
+        QMessageBox.warning(self, "歌词搜索失败", err_msg) # 弹出框提示
 
     def on_select(self, item):
+        # 关键：无论双击哪一列，都从第一列获取 ID
         row = item.row()
         self.result_id = self.list_widget.item(row, 0).data(Qt.UserRole)
+        # 检查是否成功获取到 ID
+        if not self.result_id:
+             QMessageBox.warning(self, "错误", "未能获取歌曲 ID，请重试！")
+             return
         self.accept()
 
 # ================= 主程序 =================
@@ -339,6 +381,7 @@ class SodaPlayer(QMainWindow):
         self.playlist = []
         self.history = []
         self.lyrics = [] 
+        self.saved_offsets = {} # 歌词偏移量
         self.current_index = -1
         self.current_collection = None
         self.is_seeking = False # 拖动进度条标志
@@ -361,6 +404,7 @@ class SodaPlayer(QMainWindow):
         
         policy = ACCENT_POLICY()
         policy.AccentState = 4
+        # Windows 毛玻璃效果的颜色，使用主题背景色F1F8E9
         policy.GradientColor = 0xCCF1F8E9
         data = WINDOWCOMPOSITIONATTRIBDATA()
         data.Attribute = 19
@@ -481,7 +525,6 @@ class SodaPlayer(QMainWindow):
         sb_layout.addWidget(btn_dl)
 
         nav_box = QVBoxLayout()
-        # FIX: 使用 p_int() 代替 px()
         nav_box.setContentsMargins(0, p_int(10), 0, p_int(10))
         
         self.btn_all = QPushButton(f"{ICONS['disc']} 全部音乐", objectName="NavBtn")
@@ -503,7 +546,7 @@ class SodaPlayer(QMainWindow):
         sb_layout.addWidget(self.list_coll)
 
         tool_box = QVBoxLayout()
-        tool_box.setContentsMargins(0, p_int(10), 0, p_int(10)) # FIX: 使用 p_int()
+        tool_box.setContentsMargins(0, p_int(10), 0, p_int(10))
         tools = [
             (f"{ICONS['sync']} 刷新库", self.full_scan),
             (f"{ICONS['folder_plus']} 新建合集", self.new_collection),
@@ -525,7 +568,6 @@ class SodaPlayer(QMainWindow):
         top_bar = QFrame(objectName="TopBar"); top_bar.setFixedHeight(p_int(70))
         top_bar.setStyleSheet(f"background:{THEME['surface']}; border-bottom:1px solid {THEME['border']};")
         tb_layout = QHBoxLayout(top_bar)
-        # FIX: 使用 p_int() 代替 px()
         tb_layout.setContentsMargins(p_int(30), 0, p_int(30), 0)
         self.lbl_title = QLabel("全部音乐", styleSheet=f"font-size:{px(24)}; font-weight:bold; color:{THEME['primary']};")
         self.search_box = QLineEdit(objectName="SearchBox"); self.search_box.setPlaceholderText(f"{ICONS['search']} 搜索本地歌曲...")
@@ -539,7 +581,6 @@ class SodaPlayer(QMainWindow):
         # Page 0: 列表模式
         page0 = QWidget()
         p0_layout = QHBoxLayout(page0)
-        # FIX: 使用 p_int() 代替 px()
         p0_layout.setContentsMargins(p_int(20), p_int(20), p_int(20), p_int(20))
         
         # 左侧表格
@@ -569,9 +610,20 @@ class SodaPlayer(QMainWindow):
         lm_layout = QVBoxLayout(lyric_mini)
         lm_header = QHBoxLayout()
         lm_header.addWidget(QLabel("歌词", styleSheet="font-weight:bold;"))
+        
+        # 歌词偏移按钮
+        self.btn_offset_minus = QPushButton("-0.5s", styleSheet=f"padding:{px(4)} {px(8)}; border-radius:{px(5)};")
+        self.btn_offset_plus = QPushButton("+0.5s", styleSheet=f"padding:{px(4)} {px(8)}; border-radius:{px(5)};")
+        self.btn_offset_minus.clicked.connect(lambda: self.change_lyric_offset(-500))
+        self.btn_offset_plus.clicked.connect(lambda: self.change_lyric_offset(500))
+
         btn_sync = QPushButton(f"{ICONS['sync']} 手动匹配"); btn_sync.clicked.connect(self.manual_search_lyric)
         btn_sync.setStyleSheet(f"border:1px solid {THEME['border']}; border-radius:{px(5)}; padding:{px(4)}; font-size:{px(12)};")
-        lm_header.addStretch(); lm_header.addWidget(btn_sync)
+        
+        lm_header.addStretch()
+        lm_header.addWidget(self.btn_offset_minus)
+        lm_header.addWidget(self.btn_offset_plus)
+        lm_header.addWidget(btn_sync)
         lm_layout.addLayout(lm_header)
         
         self.list_lyric_mini = QListWidget(objectName="LyricContent")
@@ -585,7 +637,6 @@ class SodaPlayer(QMainWindow):
         # Page 1: 大歌词页
         page1 = QWidget(objectName="LyricPage")
         p1_layout = QHBoxLayout(page1)
-        # FIX: 使用 p_int() 代替 px()
         p1_layout.setContentsMargins(p_int(50), p_int(50), p_int(50), p_int(50))
         
         # 左侧信息区
@@ -607,7 +658,6 @@ class SodaPlayer(QMainWindow):
         # 右侧大歌词
         self.list_lyric_big = QListWidget(objectName="BigLyric")
         self.list_lyric_big.setFocusPolicy(Qt.NoFocus); self.list_lyric_big.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        # self.list_lyric_big.setAlignment(Qt.AlignCenter) # <--- 移除此行，因为它会导致报错
 
         p1_layout.addLayout(info_area, stretch=4)
         p1_layout.addWidget(self.list_lyric_big, stretch=6)
@@ -618,7 +668,6 @@ class SodaPlayer(QMainWindow):
         # 3. 底部播放栏
         player_bar = QFrame(objectName="PlayerBar")
         pb_layout = QVBoxLayout(player_bar)
-        # FIX: 使用 p_int() 代替 px()
         pb_layout.setContentsMargins(p_int(25), p_int(10), p_int(25), p_int(10))
         
         # 进度条
@@ -691,9 +740,33 @@ class SodaPlayer(QMainWindow):
                 with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
                     self.history = json.load(f)
             except: pass
+        
+        # 加载歌词偏移量
+        if os.path.exists(OFFSET_FILE):
+             try:
+                 with open(OFFSET_FILE, 'r', encoding='utf-8') as f:
+                     self.saved_offsets = json.load(f)
+             except: pass
 
         if self.music_folder:
             self.full_scan()
+
+    def save_offsets(self):
+        """保存歌词偏移量到文件"""
+        try:
+            with open(OFFSET_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.saved_offsets, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存偏移量错误: {e}")
+
+    def save_history(self):
+        """保存历史记录到文件"""
+        try:
+            with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存历史记录错误: {e}")
+
 
     def select_root_folder(self):
         d = QFileDialog.getExistingDirectory(self, "选择音乐根目录")
@@ -737,7 +810,6 @@ class SodaPlayer(QMainWindow):
         # 取消其他导航按钮选中状态
         for i in range(self.list_coll.count()):
             item = self.list_coll.item(i)
-            # 这里是 QListWidget，不能用 setChecked，用setSelected来模拟
             if item.text().split(' ', 1)[-1] == coll_name:
                  item.setSelected(True)
             else:
@@ -897,12 +969,7 @@ class SodaPlayer(QMainWindow):
             self.history = [s for s in self.history if s['path'] != song['path']] # 移除旧的
             self.history.insert(0, song) # 插入新的
             if len(self.history) > 50: self.history.pop()
-            # 优化：每次播放都保存，确保历史记录及时
-            try:
-                with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(self.history, f)
-            except Exception as e:
-                print(f"Error saving history: {e}")
+            self.save_history() # 保存历史记录
         
         self.player.setMedia(QMediaContent(QUrl.fromLocalFile(song['path'])))
         self.player.play()
@@ -967,7 +1034,10 @@ class SodaPlayer(QMainWindow):
         # 更新表格中的时长
         if self.current_index >= 0 and self.current_index < len(self.playlist):
              self.playlist[self.current_index]['duration'] = ms_to_str(dur)
-             self.table.item(self.current_index, 3).setText(ms_to_str(dur))
+             # 防止列表为空时操作
+             if self.table.item(self.current_index, 3):
+                 self.table.item(self.current_index, 3).setText(ms_to_str(dur))
+             
              # 确保在历史记录中也更新（如果存在）
              if self.history and self.history[0]['path'] == self.playlist[self.current_index]['path']:
                 self.history[0]['duration'] = ms_to_str(dur)
@@ -982,6 +1052,34 @@ class SodaPlayer(QMainWindow):
         self.lbl_curr.setText(ms_to_str(val))
 
     # --- 3. 歌词系统 ---
+    def get_current_song_key(self):
+        """生成用于保存歌词偏移量的唯一键"""
+        if self.current_index >= 0 and self.current_index < len(self.playlist):
+            return self.playlist[self.current_index]['path']
+        return None
+
+    def get_current_offset(self):
+        """获取当前歌曲的歌词偏移量 (ms)"""
+        key = self.get_current_song_key()
+        return self.saved_offsets.get(key, 0) if key else 0
+
+    def change_lyric_offset(self, delta):
+        """调整歌词偏移量"""
+        key = self.get_current_song_key()
+        if not key: 
+            QMessageBox.warning(self, "歌词偏移", "请先播放一首歌曲。")
+            return
+        
+        current_offset = self.get_current_offset()
+        new_offset = current_offset + delta
+        
+        self.saved_offsets[key] = new_offset
+        self.save_offsets()
+        
+        # 立即更新显示
+        offset_s = new_offset / 1000.0
+        QMessageBox.information(self, "歌词偏移", f"已调整偏移量为: {offset_s:.1f} 秒。")
+
     def load_lyrics(self, song):
         self.lyrics = []
         self.list_lyric_mini.clear()
@@ -1015,8 +1113,7 @@ class SodaPlayer(QMainWindow):
                     self.lyrics.append({'t': m1+s1+ms, 'txt': txt})
         
         if not self.lyrics:
-            self.list_lyric_mini.addItem(QListWidgetItem("歌词解析失败或为空"))
-            self.list_lyric_big.addItem(QListWidgetItem("歌词解析失败或为空"))
+            self.on_no_lyric("歌词解析失败或为空")
             return
 
         # 填充 UI
@@ -1033,9 +1130,14 @@ class SodaPlayer(QMainWindow):
 
     def auto_match_lyric(self, keyword):
         self.list_lyric_mini.clear(); self.list_lyric_mini.addItem("正在自动搜索歌词...")
-        self.list_lyric_big.clear(); self.list_lyric_big.addItem("正在自动搜索歌词...")
+        self.list_lyric_big.clear(); 
+        item = QListWidgetItem("正在自动搜索歌词...")
+        item.setTextAlignment(Qt.AlignCenter)
+        self.list_lyric_big.addItem(item)
+        
         worker = LyricSearchWorker(keyword)
         worker.search_finished.connect(self.on_auto_search_result)
+        worker.search_error.connect(self.on_lyric_search_error)
         self._temp_worker = worker 
         worker.start()
 
@@ -1047,41 +1149,65 @@ class SodaPlayer(QMainWindow):
                 song = self.playlist[self.current_index]
                 path = os.path.splitext(song['path'])[0] + ".lrc"
                 dl = LyricDownloadWorker(sid, path)
-                dl.finished_signal.connect(lambda txt: self.parse_lrc(txt) if txt else self.on_no_lyric())
+                dl.finished_signal.connect(lambda txt: self.parse_lrc(txt) if txt else self.on_no_lyric("歌词下载失败"))
+                dl.error_signal.connect(self.on_lyric_search_error)
                 self._temp_dl = dl
                 dl.start()
         else:
-            self.on_no_lyric()
+            self.on_no_lyric("未找到相关歌词")
 
-    def on_no_lyric(self):
-        self.list_lyric_mini.clear(); self.list_lyric_mini.addItem("暂无歌词")
-        self.list_lyric_big.clear(); self.list_lyric_big.addItem("暂无歌词")
+    def on_lyric_search_error(self, err_msg):
+        self.on_no_lyric(f"歌词搜索出错: {err_msg}")
+        QMessageBox.warning(self, "歌词搜索失败", f"歌词搜索功能出错：{err_msg}")
+
+    def on_no_lyric(self, reason="暂无歌词"):
+        self.lyrics = [] # 清空歌词数据
+        self.list_lyric_mini.clear(); self.list_lyric_mini.addItem(reason)
+        self.list_lyric_big.clear(); 
+        item = QListWidgetItem(reason)
+        item.setTextAlignment(Qt.AlignCenter)
+        self.list_lyric_big.addItem(item)
 
     def manual_search_lyric(self):
-        if self.current_index < 0: 
+        # 1. 确保有歌曲正在播放
+        if self.current_index < 0 or not self.playlist: 
             QMessageBox.warning(self, "提示", "请先播放一首歌曲。")
             return
             
         song = self.playlist[self.current_index]
+        
+        # 2. 弹出搜索对话框
         dlg = LyricSearchDialog(song['name'], self)
+        
         if dlg.exec_() == QDialog.Accepted and dlg.result_id:
+            sid = dlg.result_id # 关键：获取选中的歌曲ID
             path = os.path.splitext(song['path'])[0] + ".lrc"
-            # 清空并提示
-            self.list_lyric_mini.clear(); self.list_lyric_mini.addItem("正在下载并匹配歌词...")
-            self.list_lyric_big.clear(); self.list_lyric_big.addItem("正在下载并匹配歌词...")
             
-            dl = LyricDownloadWorker(dlg.result_id, path)
-            dl.finished_signal.connect(lambda txt: self.parse_lrc(txt) if txt else self.on_no_lyric())
+            # 3. 提示并开始下载
+            self.list_lyric_mini.clear(); self.list_lyric_mini.addItem("正在手动匹配歌词...")
+            self.list_lyric_big.clear(); 
+            item = QListWidgetItem("正在手动匹配歌词...")
+            item.setTextAlignment(Qt.AlignCenter)
+            self.list_lyric_big.addItem(item)
+            
+            dl = LyricDownloadWorker(sid, path)
+            # 下载成功则解析，下载失败则提示无歌词
+            dl.finished_signal.connect(lambda txt: self.parse_lrc(txt) if txt else self.on_no_lyric("歌词下载失败"))
+            dl.error_signal.connect(self.on_lyric_search_error) # 绑定下载错误信号
             self._temp_dl = dl
             dl.start()
 
     def sync_lyrics_ui(self, pos):
         if not self.lyrics: return
         
+        # 应用歌词偏移量
+        offset = self.get_current_offset()
+        current_time = pos + offset
+
         idx = -1
         # 找到当前应该高亮的歌词行
         for i, l in enumerate(self.lyrics):
-            if pos >= l['t']: idx = i
+            if current_time >= l['t']: idx = i
             else: break
         
         if idx >= 0:
@@ -1160,6 +1286,13 @@ class SodaPlayer(QMainWindow):
                 QMessageBox.warning(self, "错误", str(e))
 
 if __name__ == "__main__":
+    # 处理打包后的资源路径
+    if getattr(sys, 'frozen', False):
+        app_path = sys._MEIPASS
+        # 确保打包后 Qt 插件可以被找到
+        os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = os.path.join(app_path, 'PyQt5', 'Qt', 'plugins')
+        QCoreApplication.addLibraryPath(os.path.join(app_path, 'PyQt5', 'Qt', 'plugins'))
+        
     if hasattr(Qt, 'AA_EnableHighDpiScaling'):
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
