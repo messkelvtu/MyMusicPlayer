@@ -23,7 +23,7 @@ jobs:
         pip install pyinstaller PyQt5 PyQt5-sip yt-dlp requests qt-material
         
     - name: Build EXE
-      # 关键修复：指定使用 cmd shell，确保 ^ 换行符生效
+      # 使用 cmd shell 确保 ^ 换行符生效
       shell: cmd
       run: |
         pyinstaller --noconsole --onefile ^
@@ -39,8 +39,8 @@ jobs:
           --hidden-import=urllib3 ^
           --hidden-import=chardet ^
           --hidden-import=idna ^
-          --add-data=\".;.\" ^
-          --name \"LightMusicPlayer\" ^
+          --add-data=".;." ^
+          --name LightMusicPlayer ^  <-- 关键修复：移除双引号
           main.py
           
     - name: Verify EXE
