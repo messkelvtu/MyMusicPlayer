@@ -24,7 +24,7 @@ jobs:
         
     - name: Build EXE
       run: |
-        pyinstaller --nconsole --onefile `
+        pyinstaller --noconsole --onefile `
           --collect-all PyQt5.QtMultimedia `
           --collect-all yt_dlp `
           --collect-all qt_material `
