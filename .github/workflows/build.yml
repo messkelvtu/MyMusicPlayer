@@ -1,4 +1,5 @@
 name: Build EXE
+
 on:
   push:
     branches: [ "main" ]
@@ -7,54 +8,59 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        # 使用 3.10 版本
         python-version: '3.10'
-        
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # 确保安装了 PyQt5, yt-dlp, requests, 和 qt-material
-        pip install pyinstaller PyQt5 PyQt5-sip yt-dlp requests qt-material
-        
+        pip install pyinstaller PyQt5 PyQt5-sip vt-dlp requests qt-material
+
     - name: Build EXE
-      # 使用 cmd shell 确保 ^ 换行符生效
-      shell: cmd
       run: |
-        pyinstaller --noconsole --onefile ^
-          --collect-all PyQt5.QtMultimedia ^
-          --collect-all yt_dlp ^
-          --collect-all qt_material ^
-          --hidden-import=PyQt5.QtCore ^
-          --hidden-import=PyQt5.QtGui ^
-          --hidden-import=PyQt5.QtWidgets ^
-          --hidden-import=PyQt5.QtMultimedia ^
-          --hidden-import=PyQt5.QtNetwork ^
-          --hidden-import=requests ^
-          --hidden-import=urllib3 ^
-          --hidden-import=chardet ^
-          --hidden-import=idna ^
-          --add-data=".;." ^
-          --name LightMusicPlayer ^  <-- 关键修复：移除双引号
+        pyinstaller --noconsole --onefile \
+          --collect-all PyQt5.QtMultimedia \
+          --collect-all yt_dlp \
+          --collect-all qt_material \
+          --hidden-import=PyQt5.QtCore \
+          --hidden-import=PyQt5.QtGui \
+          --hidden-import=PyQt5.QtWidgets \
+          --hidden-import=PyQt5.QtMultimedia \
+          --hidden-import=PyQt5.QtNetwork \
+          --hidden-import=requests \
+          --hidden-import=urllib3 \
+          --hidden-import=chardet \
+          --hidden-import=idna \
+          --add-data="ui_scale_manager.py;." \
+          --add-data="theme_manager.py;." \
+          --add-data="style_generator.py;." \
+          --add-data="utils.py;." \
+          --add-data="dialogs.py;." \
+          --add-data="desktop_lyric.py;." \
+          --add-data="windows_effects.py;." \
+          --add-data="bilibili_downloader.py;." \
+          --name "LightMusicPlayer" \
           main.py
-          
+
     - name: Verify EXE
-      # 验证文件是否存在
       run: |
-        if exist dist\LightMusicPlayer.exe (
-          echo "EXE build successful!"
-        ) else (
-          echo "EXE build failed!"
+        if (Test-Path "dist/LightMusicPlayer.exe") {
+          echo "✔ EXE 文件创建成功"
+          echo "文件大小: $((Get-Item 'dist/LightMusicPlayer.exe').Length) bytes"
+        } else {
+          echo "✗ EXE 文件未找到"
           exit 1
-        )
-        
+        }
+
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: LightMusicPlayer
+        name: LightMusicPlayer-EXE
         path: dist/LightMusicPlayer.exe
+        retention-days: 30
