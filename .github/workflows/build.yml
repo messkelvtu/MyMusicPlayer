@@ -23,7 +23,8 @@ jobs:
         pip install pyinstaller PyQt5 PyQt5-sip yt-dlp requests qt-material
         
     - name: Build EXE
-      # 关键修复：将所有的 ` 替换为 ^ 来确保在GitHub Actions的Windows环境中正确换行
+      # 关键修复：指定使用 cmd shell，确保 ^ 换行符生效
+      shell: cmd
       run: |
         pyinstaller --noconsole --onefile ^
           --collect-all PyQt5.QtMultimedia ^
@@ -45,12 +46,12 @@ jobs:
     - name: Verify EXE
       # 验证文件是否存在
       run: |
-        if (Test-Path dist\\LightMusicPlayer.exe) {
-          Write-Host "EXE build successful!"
-        } else {
-          Write-Host "EXE build failed!"
+        if exist dist\LightMusicPlayer.exe (
+          echo "EXE build successful!"
+        ) else (
+          echo "EXE build failed!"
           exit 1
-        }
+        )
         
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
