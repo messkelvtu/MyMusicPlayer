@@ -70,9 +70,7 @@ def ms_to_str(ms):
 def sanitize_filename(name):
     return re.sub(r'[\\/*?:"<>|]', "", name).strip()
 
-# ================= 线程工作类 (同上，省略具体实现) =================
-# ... (BilibiliDownloader, LyricSearchWorker, LyricDownloadWorker 保持不变)
-
+# ================= 线程工作类 =================
 class BilibiliDownloader(QThread):
     """B站下载线程"""
     progress_signal = pyqtSignal(str)
@@ -177,7 +175,7 @@ class LyricDownloadWorker(QThread):
         except Exception:
             self.finished_signal.emit("")
 
-# ================= 自定义弹窗 (同上，仅修正了代码风格) =================
+# ================= 自定义弹窗 =================
 class ModernDialog(QDialog):
     """通用弹窗基类"""
     def __init__(self, title, parent=None):
@@ -609,7 +607,7 @@ class SodaPlayer(QMainWindow):
         # 右侧大歌词
         self.list_lyric_big = QListWidget(objectName="BigLyric")
         self.list_lyric_big.setFocusPolicy(Qt.NoFocus); self.list_lyric_big.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.list_lyric_big.setAlignment(Qt.AlignCenter)
+        # self.list_lyric_big.setAlignment(Qt.AlignCenter) # <--- 移除此行，因为它会导致报错
 
         p1_layout.addLayout(info_area, stretch=4)
         p1_layout.addWidget(self.list_lyric_big, stretch=6)
@@ -677,7 +675,7 @@ class SodaPlayer(QMainWindow):
         r_layout.addWidget(player_bar)
         main_h.addWidget(right_widget)
 
-    # ================= 逻辑功能 (同上，保持完整性) =================
+    # ================= 逻辑功能 =================
     
     # --- 1. 数据与文件 ---
     def load_config(self):
@@ -1025,8 +1023,13 @@ class SodaPlayer(QMainWindow):
         self.list_lyric_mini.clear()
         self.list_lyric_big.clear()
         for l in self.lyrics:
-            self.list_lyric_mini.addItem(QListWidgetItem(l['txt']))
-            self.list_lyric_big.addItem(QListWidgetItem(l['txt']))
+            # 创建 QListWidgetItem 时可以设置对齐方式
+            item_mini = QListWidgetItem(l['txt'])
+            item_big = QListWidgetItem(l['txt'])
+            item_big.setTextAlignment(Qt.AlignCenter) # 在 item 级别设置对齐
+            
+            self.list_lyric_mini.addItem(item_mini)
+            self.list_lyric_big.addItem(item_big)
 
     def auto_match_lyric(self, keyword):
         self.list_lyric_mini.clear(); self.list_lyric_mini.addItem("正在自动搜索歌词...")
