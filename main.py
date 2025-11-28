@@ -859,15 +859,6 @@ class BilibiliDownloader(QThread):
         except Exception as e:
             self.error_signal.emit(str(e))
 
-# --- 图标字体加载 ---
-def load_font_awesome():
-    # 尝试加载Font Awesome字体
-    font_id = QFontDatabase.addApplicationFont(":/fonts/fontawesome.ttf")
-    if font_id != -1:
-        font_families = QFontDatabase.applicationFontFamilies(font_id)
-        return font_families[0] if font_families else "Arial"
-    return "Arial"
-
 # 图标映射
 ICONS = {
     "music": "🎵",
@@ -1560,8 +1551,8 @@ class SodaPlayer(QMainWindow):
         top_layout.setContentsMargins(30, 15, 30, 15)
         
         self.title_label = QLabel("全部音乐")
-        title_font_size = self.scale_manager.get_scaled_font_size(self.width(), self.height(), 26)
-        self.title_label.setStyleSheet(f"font-size: {title_font_size}px; font-weight: bold; color: #4CAF50;")
+        title_font_size = self.scale_manager.get_scaled_font_size(self.width(), self.height())
+        self.title_label.setStyleSheet(f"font-size: {title_font_size + 12}px; font-weight: bold; color: #4CAF50;")
         
         self.search_box = QLineEdit()
         self.search_box.setObjectName("SearchBox")
@@ -1600,8 +1591,8 @@ class SodaPlayer(QMainWindow):
         song_header_layout.setContentsMargins(20, 15, 20, 15)
         
         song_table_title = QLabel("歌曲列表")
-        song_table_font_size = self.scale_manager.get_scaled_font_size(self.width(), self.height(), 18)
-        song_table_title.setStyleSheet(f"font-size: {song_table_font_size}px; font-weight: bold; color: #1B5E20;")
+        song_table_font_size = self.scale_manager.get_scaled_font_size(self.width(), self.height())
+        song_table_title.setStyleSheet(f"font-size: {song_table_font_size + 5}px; font-weight: bold; color: #1B5E20;")
         
         song_table_actions = QHBoxLayout()
         song_table_actions.setSpacing(10)
@@ -1659,8 +1650,8 @@ class SodaPlayer(QMainWindow):
         lyric_header_layout.setContentsMargins(20, 15, 20, 15)
         
         lyric_title = QLabel("歌词")
-        lyric_title_font_size = self.scale_manager.get_scaled_font_size(self.width(), self.height(), 16)
-        lyric_title.setStyleSheet(f"font-size: {lyric_title_font_size}px; font-weight: bold; color: #1B5E20;")
+        lyric_title_font_size = self.scale_manager.get_scaled_font_size(self.width(), self.height())
+        lyric_title.setStyleSheet(f"font-size: {lyric_title_font_size + 3}px; font-weight: bold; color: #1B5E20;")
         
         lyric_controls = QHBoxLayout()
         lyric_controls.setSpacing(8)
